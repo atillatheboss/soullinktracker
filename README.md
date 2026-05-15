@@ -2,7 +2,7 @@
 
 Web app for SoulLink runs with integrated screen sharing, team/box management, route tracking, battle analysis, run history, rules/trainer-caps editing, and admin tools.
 
-Try it out: [SoullinkTracker](https://www.soullink.servegame.com)
+Try it out: [SoullinkTracker](https://soullink.servegame.com)
 
 
 
