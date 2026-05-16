@@ -1,3 +1,22 @@
+// ─── LOGGING: Alle Konsolenausgaben → connection.log ─────────────────────────
+const _fs_log    = require('fs');
+const _path_log  = require('path');
+const _logStream = _fs_log.createWriteStream(_path_log.join(__dirname, 'connection.log'), { flags: 'a' });
+
+function _writeToLog(level, args) {
+  const ts = new Date().toISOString();
+  const msg = args.map(a => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ');
+  _logStream.write(`[${ts}] [${level}] ${msg}\n`);
+}
+
+const _origLog   = console.log.bind(console);
+const _origWarn  = console.warn.bind(console);
+const _origError = console.error.bind(console);
+console.log   = (...args) => { _origLog(...args);   _writeToLog('LOG',   args); };
+console.warn  = (...args) => { _origWarn(...args);  _writeToLog('WARN',  args); };
+console.error = (...args) => { _origError(...args); _writeToLog('ERROR', args); };
+// ─────────────────────────────────────────────────────────────────────────────
+
 const express    = require('express');
 const https      = require('https');
 const http       = require('http');
@@ -340,6 +359,37 @@ function checkRouteAutoLink(R,activePIs,routeId) {
 // ─── EXPRESS & SERVER SETUP ──────────────────────────────────────────────────
 const app = express();
 app.use(express.json());
+
+// ─── IP TRACKING ─────────────────────────────────────────────────────────────
+function getClientIP(req) {
+  return (
+    req.headers['x-forwarded-for']?.split(',')[0].trim() ||
+    req.headers['x-real-ip'] ||
+    req.socket?.remoteAddress ||
+    'unbekannt'
+  );
+}
+
+// Muss VOR express.static stehen, sonst wird index.html schon vorher ausgeliefert
+app.use((req, res, next) => {
+  const ip = getClientIP(req);
+  const ts = new Date().toISOString();
+  const accept = req.headers['accept'] || '';
+
+  // Seitenaufruf: Browser lädt index.html (text/html im Accept-Header)
+  if (req.method === 'GET' && accept.includes('text/html')) {
+    console.log(`[IP-TRACKER] ${ts} | Seitenaufruf        | IP: ${ip}`);
+  }
+
+  // Erster API-Kontakt: /api/runs (wird beim Laden der Seite sofort aufgerufen)
+  const apiLoginPaths = ['/api/runs', '/api/runs/join', '/api/runs/create'];
+  if (apiLoginPaths.includes(req.path)) {
+    console.log(`[IP-TRACKER] ${ts} | API ${req.method.padEnd(4)} ${req.path.padEnd(20)} | IP: ${ip}`);
+  }
+
+  next();
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/maps', express.static(path.join(__dirname, '..', 'maps')));
 app.use((req, res, next) => {
