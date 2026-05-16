@@ -97,6 +97,14 @@
     .sse span{font-size:.7rem;font-family:'Space Mono',monospace;text-align:center}
     .iceb{position:absolute;top:6px;left:6px;font-size:.55rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;border-radius:5px;padding:2px 5px;background:rgba(0,0,0,.7);border:1px solid var(--bd);z-index:7}
     .iceb.connected{border-color:var(--gr);color:var(--gr)}.iceb.relay{border-color:var(--yw);color:var(--yw)}.iceb.failed{border-color:var(--rd);color:var(--rd)}.iceb.checking{border-color:var(--a);color:var(--a)}
+    .ocr-roi-overlay{position:absolute;inset:0;z-index:8;pointer-events:none}
+    .ocr-roi-overlay.edit{pointer-events:auto}
+    .ocr-roi-box{position:absolute;border:2px solid var(--a);border-radius:6px;background:rgba(124,106,255,.12);box-shadow:inset 0 0 0 1px rgba(0,0,0,.45);cursor:grab;touch-action:none;user-select:none}
+    .ocr-roi-box.route{border-color:var(--a);background:rgba(124,106,255,.12)}
+    .ocr-roi-box.catch{border-color:var(--a3);background:rgba(106,255,204,.12)}
+    .ocr-roi-box.dragging{cursor:grabbing}
+    .ocr-roi-box .lbl{position:absolute;top:-18px;left:0;font-size:.56rem;font-family:'Space Mono',monospace;padding:1px 5px;border-radius:4px;background:rgba(0,0,0,.68);border:1px solid var(--bd);color:var(--tx);letter-spacing:0;text-transform:none}
+    .ocr-roi-box .hdl{position:absolute;width:11px;height:11px;right:-7px;bottom:-7px;border-radius:2px;background:var(--tx);border:1px solid #000;cursor:nwse-resize}
     /* team bar */
     .tbar{background:var(--sf);border:1px solid var(--bd);border-top:none;border-radius:0 0 12px 12px;padding:7px;display:grid;grid-template-columns:repeat(6,1fr);gap:5px}
     .ts{display:flex;flex-direction:column;align-items:center;gap:2px;position:relative;border-radius:7px;padding:3px 2px;border:1px solid transparent;min-height:60px}
@@ -159,7 +167,8 @@
     .min-btn{background:none;border:1px solid var(--bd);border-radius:5px;padding:2px 7px;font-size:.6rem;font-family:'Space Mono',monospace;color:var(--txd);cursor:pointer}
     .min-btn:hover{border-color:var(--a);color:var(--a)}
     #dbgb{background:none;border:1px solid var(--bd);border-radius:5px;padding:2px 6px;font-size:.58rem;font-family:'Space Mono',monospace;color:var(--txd);cursor:pointer}
-    #dbgb:hover{border-color:var(--a);color:var(--a)}
+    #dbgb:hover,#ocrdbgb:hover{border-color:var(--a);color:var(--a)}
+    #ocrdbgb{background:none;border:1px solid var(--bd);border-radius:5px;padding:2px 6px;font-size:.58rem;font-family:'Space Mono',monospace;color:var(--txd);cursor:pointer}
     #dbgp{display:none;background:#0d0d14;border-top:1px solid var(--bd);padding:7px 18px;max-height:240px;overflow-y:auto;font-family:'Space Mono',monospace;font-size:.61rem}
     #dbgp.open{display:block}
     .dl{padding:1px 0}.dl.ok{color:var(--gr)}.dl.w{color:var(--yw)}.dl.e{color:var(--rd)}.dl.i{color:var(--a)}
@@ -613,7 +622,8 @@
     <div class="dlive"></div>
     <span class="badge" id="mnb">–</span>
     <button class="btn btn-share btn-sm" id="shbtn" onclick="toggleShare()">🖥 Teilen</button>
-    <a href="https://github.com/AtillatheBoss" target="_blank" style="font-size:.78rem;font-family:'Space Mono',monospace;color:var(--a);text-decoration:none;white-space:nowrap;opacity:.7;transition:opacity .15s" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.6'">© AtillatheBoss</a>
+    <button class="btn btn-sm" id="autocatch-btn" onclick="toggleAutoRouteCatch()" title="Automatische Route/Catch-Erkennung (OCR)">(DEV) Auto: Aus</button>
+    <a href="https://gitlab.com/AtillatheBoss" target="_blank" style="font-size:.78rem;font-family:'Space Mono',monospace;color:var(--a);text-decoration:none;white-space:nowrap;opacity:.7;transition:opacity .15s" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.6'">© AtillatheBoss</a>
   </div>
 </nav>
 
@@ -640,6 +650,10 @@
       <div class="ss is-me" id="slot-local">
         <div class="sse"><div style="font-size:1.8rem;opacity:.16">🖥</div><span>Dein Screen</span></div>
         <video id="lv" autoplay muted playsinline></video>
+        <div id="ocr-roi-overlay" class="ocr-roi-overlay">
+          <div class="ocr-roi-box route" id="ocr-roi-box-route" data-kind="route"><span class="lbl">Route ROI</span><span class="hdl" data-mode="resize"></span></div>
+          <div class="ocr-roi-box catch" id="ocr-roi-box-catch" data-kind="catch"><span class="lbl">Catch ROI</span><span class="hdl" data-mode="resize"></span></div>
+        </div>
         <div class="ssl" id="ll">Du</div>
       </div>
       <div class="tbar" id="tb-0"></div>
@@ -669,7 +683,8 @@
   <div id="badge-bar-wrap"><div id="central-badge-bar"></div></div>
   <button id="badge-toggle-btn" onclick="toggleBadgeBar()">Arenen ▾</button>
   <div id="dbgp"></div>
-  <div id="stbar"><span id="stl">bereit</span><span id="str">0/3 teilen</span><span id="run-status-badge" style="font-family:Space Mono,monospace;font-size:.62rem;color:var(--a);font-weight:700"></span><span id="run-timer" style="font-family:Space Mono,monospace;font-size:.62rem;color:var(--txd)"></span><button id="run-btn" style="display:none" class="btn btn-xs"></button><button class="min-btn" id="popoutbtn" onclick="popoutStreams()" title="Streams in neuem Fenster öffnen">⧉ Pop-out</button><button class="min-btn" id="minbtn" onclick="toggleMinimize()">⊟ minimieren</button><button id="dbgb" onclick="toggleDbg()">debug ▾</button></div>
+  <div id="auto-ocr-debug" style="display:none;background:#0d0d14;border-top:1px solid var(--bd);padding:8px 18px 10px;max-height:300px;overflow-y:auto;font-family:'Space Mono',monospace;font-size:.6rem"></div>
+  <div id="stbar"><span id="stl">bereit</span><span id="str">0/3 teilen</span><span id="autocatch-state" style="font-family:Space Mono,monospace;font-size:.62rem;color:var(--txd)">Auto: aus</span><span id="run-status-badge" style="font-family:Space Mono,monospace;font-size:.62rem;color:var(--a);font-weight:700"></span><span id="run-timer" style="font-family:Space Mono,monospace;font-size:.62rem;color:var(--txd)"></span><button id="run-btn" style="display:none" class="btn btn-xs"></button><button class="min-btn" id="popoutbtn" onclick="popoutStreams()" title="Streams in neuem Fenster öffnen">⧉ Pop-out</button><button class="min-btn" id="minbtn" onclick="toggleMinimize()">⊟ minimieren</button><button id="ocrdbgb" onclick="toggleAutoOcrDebug()">ocr ▾</button><button id="dbgb" onclick="toggleDbg()">debug ▾</button></div>
 </div>
 
 <!-- SOULLINK -->
@@ -906,6 +921,7 @@
 
 <div id="toast"></div>
 <script src="/socket.io/socket.io.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
 <script>
 // ═══════════════════════════════════════════════
 // STATE
@@ -942,6 +958,61 @@ let routes=[{},{},{}];
 let links=[];
 let selectedEdition=null;
 
+const AUTO_CATCH_CFG = {
+  intervalMs: 1400,
+  routeConfirmHits: 2,
+  eventCooldownMs: 20000,
+  routeKeepMs: 180000,
+  routeRoi: { x: 0.02, y: 0.02, w: 0.52, h: 0.16 },
+  catchRoi: { x: 0.15, y: 0.73, w: 0.7, h: 0.22 }
+};
+const AUTO_CATCH_FIRE_RED_CFG = {
+  intervalMs: 420,
+  routeConfirmHits: 1,
+  eventCooldownMs: 12000,
+  routeKeepMs: 300000,
+  routeRoi: { x: 0.0, y: 0.0, w: 0.64, h: 0.28 },
+  catchRoi: { x: 0.0, y: 0.56, w: 1.0, h: 0.44 }
+};
+const autoCatch = {
+  enabled: false,
+  loading: false,
+  busy: false,
+  timer: null,
+  worker: null,
+  phase: 'route',
+  lastRouteId: null,
+  routeSeenAt: 0,
+  routeCandidate: null,
+  routeCandidateHits: 0,
+  lastEmitKey: '',
+  lastEmitAt: 0,
+  lastCatchText: '',
+  ocrCanvas: null,
+  ocrCtx: null,
+  workCanvas: null,
+  workCtx: null,
+  aliases: [],
+  aliasReady: false,
+  tickNo: 0,
+  debugView: false
+};
+function isFireRedLeafGreenEdition(){
+  return selectedEdition==='firered-leafgreen';
+}
+function currentAutoCfg(){
+  return isFireRedLeafGreenEdition()?AUTO_CATCH_FIRE_RED_CFG:AUTO_CATCH_CFG;
+}
+const autoRoiDrag = {
+  active:false,
+  kind:null,
+  mode:'move',
+  pointerId:null,
+  startX:0,
+  startY:0,
+  startRoi:null
+};
+
 const colAssign={};
 function es(){return{pokeId:null,name:'',nickname:'',shiny:false,alive:true,missed:false};}
 
@@ -969,6 +1040,10 @@ function applyReadonlyUI(){
   if(!myReadonly)return;
   const shbtn=document.getElementById('shbtn');
   if(shbtn)shbtn.style.display='none';
+  const acbtn=document.getElementById('autocatch-btn');
+  if(acbtn){acbtn.disabled=true;acbtn.style.opacity='.4';acbtn.style.cursor='not-allowed';}
+  const ocrbtn=document.getElementById('ocrdbgb');
+  if(ocrbtn){ocrbtn.disabled=true;ocrbtn.style.opacity='.4';ocrbtn.style.cursor='not-allowed';}
   const edsel=document.getElementById('edition-sel');
   if(edsel){edsel.disabled=true;edsel.style.opacity='.4';edsel.style.cursor='not-allowed';}
   const nr=document.querySelector('.nr');
@@ -1352,6 +1427,7 @@ function connectToRun(name, passphrase, requestedPlayerIndex, joinRunPassword=''
     ex.forEach(p=>regPeer(p.id,p.name,p.sharing,p.playerIndex));
     if(myPI>=0) setTimeout(()=>{let d=0;ex.forEach(p=>{setTimeout(()=>negotiate(p.id),d);d+=300;});},100);
     assignCols();updateAllBars();updateUI();
+    syncAutoCatchUI();
     const rb=document.getElementById('run-bar-pp');if(rb)rb.textContent='Run: '+passphrase;
     updateRunUI();
     // Spectator: build grid immediately so ro-slots exist before ontrack fires
@@ -1406,6 +1482,7 @@ function connectToRun(name, passphrase, requestedPlayerIndex, joinRunPassword=''
   socket.on('relay-frame',({from,frame})=>{const p=peers.get(from);if(!p||!p.relayMode)return;renderRelay(from,frame,p.slotIndex,p.name);});
   socket.on('soullink-state',({team:t,box:b,links:l,routes:r,selectedEdition:ed,deathCounts:dc,totalDeathCounts:tdc,badgeStates:bs,levelCaps:lc,runStatus:rs,runCounter:rc,runStartedAt:rsa,runElapsed:rel,runHistory:rh,runPassword:rp,rulesText:rt,rulesTitle:rttl,rulesetId:rsid,trainerCapsText:tct})=>{
     team=t;box=b;links=l;routes=r||[{},{},{}];
+    const prevEdition=selectedEdition;
     if(dc)deathCounts=dc;
     if(tdc)totalDeathCounts=tdc;
     if(bs)badgeStates=bs;
@@ -1425,6 +1502,14 @@ function connectToRun(name, passphrase, requestedPlayerIndex, joinRunPassword=''
     } else {
       selectedEdition=ed;
     }
+    if(prevEdition!==selectedEdition){
+      autoLog(`Edition gewechselt: ${prevEdition||'-'} -> ${selectedEdition||'-'}`);
+      autoCatch.aliasReady=false;
+      resetAutoCatchMemory();
+      restartAutoCatchTimer('Edition-Wechsel');
+      syncAutoRoiControls();
+      renderAutoRoiOverlay();
+    }
     updateAllBars();
     const ap=document.querySelector('.page.active')?.id;
     if(ap==='page-soullink')renderSL();
@@ -1434,6 +1519,7 @@ function connectToRun(name, passphrase, requestedPlayerIndex, joinRunPassword=''
     if(ap==='page-map')renderMap();
     if(ap==='page-run-history')renderRunHistory();
     if(ap==='page-rules')renderRulesTab();
+    syncAutoCatchUI();
   });
   socket.on('link-error',msg=>toast(msg,1));
   socket.on('debug-remote',({label,msg,t})=>{
@@ -1883,7 +1969,8 @@ async function toggleShare(){
       },50);
       localStream.getVideoTracks()[0].onended=stopShare;
       isSharing=true;document.getElementById('shbtn').textContent='⏹ Stopp';document.getElementById('shbtn').classList.add('active');
-      socket.emit('sharing-state',{sharing:true});updateUI();
+      socket.emit('sharing-state',{sharing:true});updateUI();syncAutoCatchUI();
+      if(autoCatch.enabled) setTimeout(()=>{autoCatchTick();},120);
     }catch(e){dlog('getDisplayMedia:'+e.message,'e');toast('Screen-Sharing abgebrochen.',1);}
   }else stopShare();
 }
@@ -1895,6 +1982,719 @@ function stopShare(){
   rtimers.forEach((tid,id)=>{clearInterval(tid);rtimers.delete(id);});
   isSharing=false;document.getElementById('shbtn').textContent='🖥 Teilen';document.getElementById('shbtn').classList.remove('active');
   socket.emit('sharing-state',{sharing:false});updateUI();
+  syncAutoCatchUI();
+}
+
+// ═══════════════════════════════════════════════
+// AUTO ROUTE/CATCH OCR (supplementary to manual entry)
+// ═══════════════════════════════════════════════
+function normalizeAutoText(s){
+  return String(s||'')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g,'')
+    .replace(/([a-z])([0-9])/gi,'$1 $2')
+    .replace(/([0-9])([a-z])/gi,'$1 $2')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g,' ')
+    .trim();
+}
+function autoLog(msg,t='i'){
+  dlog('[AUTO] '+String(msg),t);
+}
+function compactAutoText(s,max=180){
+  const one=String(s||'').replace(/\s+/g,' ').trim();
+  if(one.length<=max) return one;
+  return one.slice(0,max-1)+'…';
+}
+function autoRouteLabel(routeId){
+  const loc=routeData.find(r=>r.id===routeId);
+  if(!loc) return String(routeId||'').replace(/-/g,' ');
+  const de=_routeDeNames.get(routeId);
+  return de||loc.name||String(routeId).replace(/-/g,' ');
+}
+function clampNum(v,min,max){ return Math.min(max,Math.max(min,v)); }
+function round3(v){ return Math.round(v*1000)/1000; }
+function getAutoRoi(kind){
+  const cfg=currentAutoCfg();
+  return kind==='catch'?cfg.catchRoi:cfg.routeRoi;
+}
+function applyAutoRoi(kind,next,opts={}){
+  const {silent=true}=opts;
+  const t=getAutoRoi(kind);
+  const minW=0.06,minH=0.06;
+  const w=clampNum(Number(next.w??t.w)||t.w,minW,1);
+  const h=clampNum(Number(next.h??t.h)||t.h,minH,1);
+  const x=clampNum(Number(next.x??t.x)||t.x,0,1-w);
+  const y=clampNum(Number(next.y??t.y)||t.y,0,1-h);
+  t.x=round3(x);t.y=round3(y);t.w=round3(w);t.h=round3(h);
+  renderAutoRoiOverlay();
+  syncAutoRoiControls();
+  if(!silent) autoLog(`${kind.toUpperCase()} ROI = x:${t.x} y:${t.y} w:${t.w} h:${t.h}`);
+}
+function resetAutoRoi(kind){
+  const src = kind==='catch'
+    ? (isFireRedLeafGreenEdition()?AUTO_CATCH_FIRE_RED_CFG.catchRoi:AUTO_CATCH_CFG.catchRoi)
+    : (isFireRedLeafGreenEdition()?AUTO_CATCH_FIRE_RED_CFG.routeRoi:AUTO_CATCH_CFG.routeRoi);
+  applyAutoRoi(kind,{x:src.x,y:src.y,w:src.w,h:src.h},{silent:false});
+}
+function setAutoScanInterval(ms,opts={}){
+  const {silent=true}=opts;
+  const cfg=currentAutoCfg();
+  const prev=cfg.intervalMs;
+  cfg.intervalMs=Math.round(clampNum(Number(ms)||cfg.intervalMs,220,2200));
+  const out=document.getElementById('ocr-scan-interval-val');
+  if(out) out.textContent=cfg.intervalMs+' ms';
+  const inp=document.getElementById('ocr-scan-interval');
+  if(inp&&Number(inp.value)!==cfg.intervalMs) inp.value=String(cfg.intervalMs);
+  if(autoCatch.enabled && prev!==cfg.intervalMs) restartAutoCatchTimer('Intervall geändert');
+  if(!silent) autoLog(`Scan-Intervall gesetzt: ${cfg.intervalMs}ms`);
+}
+function syncAutoRoiControls(){
+  const cfg=currentAutoCfg();
+  const setV=(id,v)=>{const el=document.getElementById(id);if(el)el.value=String(v);};
+  const setT=(id,t)=>{const el=document.getElementById(id);if(el)el.textContent=t;};
+  ['route','catch'].forEach(kind=>{
+    const r=getAutoRoi(kind);
+    setV(`ocr-${kind}-x`,r.x); setV(`ocr-${kind}-y`,r.y); setV(`ocr-${kind}-w`,r.w); setV(`ocr-${kind}-h`,r.h);
+    setT(`ocr-${kind}-xv`,r.x.toFixed(3)); setT(`ocr-${kind}-yv`,r.y.toFixed(3)); setT(`ocr-${kind}-wv`,r.w.toFixed(3)); setT(`ocr-${kind}-hv`,r.h.toFixed(3));
+  });
+  setAutoScanInterval(cfg.intervalMs,{silent:true});
+}
+function renderAutoRoiOverlay(){
+  const draw=(kind)=>{
+    const box=document.getElementById(`ocr-roi-box-${kind}`);
+    if(!box) return;
+    const r=getAutoRoi(kind);
+    box.style.left=(r.x*100).toFixed(2)+'%';
+    box.style.top=(r.y*100).toFixed(2)+'%';
+    box.style.width=(r.w*100).toFixed(2)+'%';
+    box.style.height=(r.h*100).toFixed(2)+'%';
+  };
+  draw('route');draw('catch');
+}
+function updateAutoRoiOverlayVisibility(){
+  const ov=document.getElementById('ocr-roi-overlay');
+  if(!ov) return;
+  const show=autoCatch.debugView && !myReadonly && !!localStream && isSharing;
+  ov.style.display=show?'block':'none';
+  ov.classList.toggle('edit',show);
+}
+function bindAutoRoiOverlayDrag(){
+  const ov=document.getElementById('ocr-roi-overlay');
+  if(!ov||ov.dataset.bound==='1') return;
+  ov.dataset.bound='1';
+  const onDown=(ev)=>{
+    const box=ev.target.closest('.ocr-roi-box');
+    if(!box||!ov.classList.contains('edit')) return;
+    ev.preventDefault();
+    const kind=box.dataset.kind||'route';
+    const mode=ev.target.classList.contains('hdl')?'resize':'move';
+    autoRoiDrag.active=true;
+    autoRoiDrag.kind=kind;
+    autoRoiDrag.mode=mode;
+    autoRoiDrag.pointerId=ev.pointerId;
+    autoRoiDrag.startX=ev.clientX;
+    autoRoiDrag.startY=ev.clientY;
+    autoRoiDrag.startRoi={...getAutoRoi(kind)};
+    box.classList.add('dragging');
+    try{box.setPointerCapture(ev.pointerId);}catch(_){}
+  };
+  const onMove=(ev)=>{
+    if(!autoRoiDrag.active) return;
+    if(autoRoiDrag.pointerId!=null && ev.pointerId!==autoRoiDrag.pointerId) return;
+    const rect=ov.getBoundingClientRect();
+    if(!rect.width||!rect.height) return;
+    const dx=(ev.clientX-autoRoiDrag.startX)/rect.width;
+    const dy=(ev.clientY-autoRoiDrag.startY)/rect.height;
+    const st=autoRoiDrag.startRoi||{...getAutoRoi(autoRoiDrag.kind)};
+    if(autoRoiDrag.mode==='resize'){
+      applyAutoRoi(autoRoiDrag.kind,{x:st.x,y:st.y,w:st.w+dx,h:st.h+dy},{silent:true});
+    }else{
+      applyAutoRoi(autoRoiDrag.kind,{x:st.x+dx,y:st.y+dy,w:st.w,h:st.h},{silent:true});
+    }
+  };
+  const endDrag=()=>{
+    if(!autoRoiDrag.active) return;
+    const kind=autoRoiDrag.kind||'route';
+    const box=document.getElementById(`ocr-roi-box-${kind}`);
+    if(box) box.classList.remove('dragging');
+    autoRoiDrag.active=false;
+    autoRoiDrag.pointerId=null;
+    autoLog(`${kind.toUpperCase()} ROI per Drag gesetzt.`);
+  };
+  ov.addEventListener('pointerdown',onDown);
+  window.addEventListener('pointermove',onMove);
+  window.addEventListener('pointerup',endDrag);
+  window.addEventListener('pointercancel',endDrag);
+}
+function bindAutoOcrControlEvents(){
+  const host=document.getElementById('auto-ocr-debug');
+  if(!host||host.dataset.ctrlBound==='1') return;
+  host.dataset.ctrlBound='1';
+  const bindR=(id,fn)=>{const el=document.getElementById(id);if(el)el.addEventListener('input',()=>fn(el.value));};
+  ['route','catch'].forEach(kind=>{
+    bindR(`ocr-${kind}-x`,v=>applyAutoRoi(kind,{x:v}));
+    bindR(`ocr-${kind}-y`,v=>applyAutoRoi(kind,{y:v}));
+    bindR(`ocr-${kind}-w`,v=>applyAutoRoi(kind,{w:v}));
+    bindR(`ocr-${kind}-h`,v=>applyAutoRoi(kind,{h:v}));
+    const rb=document.getElementById(`ocr-${kind}-reset`);
+    if(rb) rb.addEventListener('click',()=>resetAutoRoi(kind));
+  });
+  bindR('ocr-scan-interval',v=>setAutoScanInterval(v));
+}
+function ensureAutoOcrDebugUI(){
+  const host=document.getElementById('auto-ocr-debug');
+  if(!host||host.dataset.init==='1') return;
+  host.dataset.init='1';
+  const mk=(k,title)=>`
+    <div style="border:1px solid var(--bd);border-radius:10px;padding:7px;background:var(--sf);display:flex;flex-direction:column;gap:6px">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <span style="font-weight:700;color:var(--a)">${title}</span>
+        <span id="ocr-${k}-meta" style="color:var(--txd)">-</span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+        <div><div style="color:var(--txd);margin-bottom:2px">raw ROI</div><canvas id="ocr-${k}-raw" width="320" height="80" style="width:100%;height:76px;background:#000;border:1px solid var(--bd);border-radius:6px;image-rendering:pixelated"></canvas></div>
+        <div><div style="color:var(--txd);margin-bottom:2px">preprocessed</div><canvas id="ocr-${k}-proc" width="320" height="80" style="width:100%;height:76px;background:#000;border:1px solid var(--bd);border-radius:6px;image-rendering:pixelated"></canvas></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr;gap:4px">
+        <div><span style="color:var(--txd)">raw text:</span> <span id="ocr-${k}-rawtxt" style="color:var(--tx)">-</span></div>
+        <div><span style="color:var(--txd)">norm:</span> <span id="ocr-${k}-normtxt" style="color:var(--gr)">-</span></div>
+      </div>
+    </div>`;
+  host.innerHTML=`
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:7px">
+      <span style="font-size:.66rem;color:var(--a);font-weight:700">OCR Debug View (was Tesseract sieht)</span>
+      <span style="color:var(--txd)" id="ocr-debug-status">wartet…</span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:8px" id="ocr-debug-grid">
+      ${mk('route','Route ROI')}
+      ${mk('catch','Catch ROI')}
+    </div>
+    <div style="margin-top:8px;border:1px solid var(--bd);border-radius:10px;background:var(--sf);padding:8px;display:flex;flex-direction:column;gap:8px">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:8px">
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <div style="color:var(--a);font-weight:700">Route ROI anpassen</div>
+          <div>x <input id="ocr-route-x" type="range" min="0" max="1" step="0.001"> <span id="ocr-route-xv" style="color:var(--txd)"></span></div>
+          <div>y <input id="ocr-route-y" type="range" min="0" max="1" step="0.001"> <span id="ocr-route-yv" style="color:var(--txd)"></span></div>
+          <div>w <input id="ocr-route-w" type="range" min="0.06" max="1" step="0.001"> <span id="ocr-route-wv" style="color:var(--txd)"></span></div>
+          <div>h <input id="ocr-route-h" type="range" min="0.06" max="1" step="0.001"> <span id="ocr-route-hv" style="color:var(--txd)"></span></div>
+          <button class="btn btn-g btn-xs" id="ocr-route-reset" style="align-self:flex-start">Route ROI Reset</button>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <div style="color:var(--a3);font-weight:700">Catch ROI anpassen</div>
+          <div>x <input id="ocr-catch-x" type="range" min="0" max="1" step="0.001"> <span id="ocr-catch-xv" style="color:var(--txd)"></span></div>
+          <div>y <input id="ocr-catch-y" type="range" min="0" max="1" step="0.001"> <span id="ocr-catch-yv" style="color:var(--txd)"></span></div>
+          <div>w <input id="ocr-catch-w" type="range" min="0.06" max="1" step="0.001"> <span id="ocr-catch-wv" style="color:var(--txd)"></span></div>
+          <div>h <input id="ocr-catch-h" type="range" min="0.06" max="1" step="0.001"> <span id="ocr-catch-hv" style="color:var(--txd)"></span></div>
+          <button class="btn btn-g btn-xs" id="ocr-catch-reset" style="align-self:flex-start">Catch ROI Reset</button>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span style="color:var(--txd)">Scan-Intervall</span>
+        <input id="ocr-scan-interval" type="range" min="220" max="2200" step="10" style="flex:1;min-width:180px">
+        <span id="ocr-scan-interval-val" style="color:var(--gr);min-width:64px;text-align:right">-</span>
+      </div>
+      <div style="font-size:.58rem;color:var(--txd)">Tipp: Öffne diese Ansicht und ziehe die farbigen Boxen direkt im lokalen Stream (Route = lila, Catch = mint).</div>
+    </div>`;
+  bindAutoOcrControlEvents();
+  bindAutoRoiOverlayDrag();
+  syncAutoRoiControls();
+  renderAutoRoiOverlay();
+}
+function toggleAutoOcrDebug(){
+  autoCatch.debugView=!autoCatch.debugView;
+  const host=document.getElementById('auto-ocr-debug');
+  const btn=document.getElementById('ocrdbgb');
+  if(host){
+    if(autoCatch.debugView){
+      ensureAutoOcrDebugUI();
+      syncAutoRoiControls();
+      renderAutoRoiOverlay();
+    }
+    host.style.display=autoCatch.debugView?'block':'none';
+  }
+  updateAutoRoiOverlayVisibility();
+  if(btn) btn.textContent=autoCatch.debugView?'ocr ▴':'ocr ▾';
+  autoLog('OCR-Debug '+(autoCatch.debugView?'aktiviert':'deaktiviert'));
+}
+function paintAutoDebugCanvas(targetId, source){
+  const c=document.getElementById(targetId);
+  if(!c||!source) return;
+  const ctx=c.getContext('2d');
+  if(!ctx) return;
+  c.width=source.width;
+  c.height=source.height;
+  ctx.imageSmoothingEnabled=false;
+  ctx.clearRect(0,0,c.width,c.height);
+  ctx.drawImage(source,0,0,c.width,c.height);
+}
+function updateAutoOcrDebug(kind,payload,rawText,normText,meta=''){
+  if(!autoCatch.debugView) return;
+  ensureAutoOcrDebugUI();
+  if(!payload) return;
+  paintAutoDebugCanvas(`ocr-${kind}-raw`,payload.raw);
+  paintAutoDebugCanvas(`ocr-${kind}-proc`,payload.proc);
+  const rawEl=document.getElementById(`ocr-${kind}-rawtxt`);
+  const normEl=document.getElementById(`ocr-${kind}-normtxt`);
+  const metaEl=document.getElementById(`ocr-${kind}-meta`);
+  if(rawEl) rawEl.textContent=compactAutoText(rawText||'-',220);
+  if(normEl) normEl.textContent=compactAutoText(normText||'-',220);
+  if(metaEl) metaEl.textContent=meta||new Date().toLocaleTimeString();
+  const st=document.getElementById('ocr-debug-status');
+  if(st) st.textContent='live '+new Date().toLocaleTimeString();
+}
+function syncAutoCatchUI(){
+  updateAutoRoiOverlayVisibility();
+  const btn=document.getElementById('autocatch-btn');
+  const st=document.getElementById('autocatch-state');
+  if(btn){
+    btn.disabled=myReadonly;
+    if(myReadonly){
+      btn.textContent='🤖 Auto: Aus';
+      btn.style.opacity='.4';
+      btn.style.cursor='not-allowed';
+    }else{
+      btn.style.opacity='1';
+      btn.style.cursor='';
+      btn.textContent=autoCatch.loading?'🤖 Auto: Lade…':(autoCatch.enabled?'🤖 Auto: An':'🤖 Auto: Aus');
+    }
+  }
+  if(!st) return;
+  if(myReadonly){ st.textContent='Auto: aus (Zuschauer)'; st.style.color='var(--txd)'; return; }
+  if(autoCatch.loading){ st.textContent='Auto: lädt OCR…'; st.style.color='var(--a)'; return; }
+  if(!autoCatch.enabled){ st.textContent='Auto: aus'; st.style.color='var(--txd)'; return; }
+  if(myPI<0){ st.textContent='Auto: kein Spieler-Slot'; st.style.color='var(--rd)'; return; }
+  if(!selectedEdition||!routeData.length){ st.textContent='Auto: warte auf Edition'; st.style.color='var(--yw)'; return; }
+  if(!isSharing||!localStream){ st.textContent='Auto: pausiert (kein Share)'; st.style.color='var(--txd)'; return; }
+  const routeTxt=autoCatch.lastRouteId?` · ${autoRouteLabel(autoCatch.lastRouteId)}`:'';
+  st.textContent='Auto: aktiv'+routeTxt;
+  st.style.color='var(--gr)';
+}
+function resetAutoCatchMemory(){
+  autoCatch.lastRouteId=null;
+  autoCatch.routeSeenAt=0;
+  autoCatch.routeCandidate=null;
+  autoCatch.routeCandidateHits=0;
+  autoCatch.lastCatchText='';
+  autoCatch.tickNo=0;
+}
+function stopAutoRouteCatch(opts={}){
+  const {quiet=false}=opts;
+  if(autoCatch.timer){clearInterval(autoCatch.timer);autoCatch.timer=null;}
+  autoCatch.enabled=false;
+  autoCatch.loading=false;
+  autoCatch.busy=false;
+  autoCatch.phase='route';
+  resetAutoCatchMemory();
+  syncAutoCatchUI();
+  if(!quiet) toast('Auto-Erkennung aus.');
+}
+function restartAutoCatchTimer(reason=''){
+  if(!autoCatch.enabled||autoCatch.loading) return;
+  const cfg=currentAutoCfg();
+  if(autoCatch.timer) clearInterval(autoCatch.timer);
+  autoCatch.timer=setInterval(autoCatchTick,cfg.intervalMs);
+  autoLog(`Timer neu gesetzt (${cfg.intervalMs}ms${reason?`, ${reason}`:''}).`);
+}
+async function ensureAutoWorker(){
+  if(autoCatch.worker) return autoCatch.worker;
+  if(!window.Tesseract) throw new Error('OCR-Bibliothek nicht geladen');
+  const worker=await window.Tesseract.createWorker('eng+deu',1,{
+    logger:m=>{
+      if(!autoCatch.loading) return;
+      if(m?.status==='recognizing text'&&typeof m.progress==='number'){
+        const st=document.getElementById('autocatch-state');
+        if(st) st.textContent='Auto: OCR '+Math.round(m.progress*100)+'%';
+      }
+    }
+  });
+  const psm = window.Tesseract?.PSM?.SINGLE_BLOCK ?? 6;
+  await worker.setParameters({
+    tessedit_pageseg_mode: psm,
+    preserve_interword_spaces: '1'
+  });
+  autoCatch.worker=worker;
+  return worker;
+}
+function ensureAutoCanvases(){
+  if(!autoCatch.ocrCanvas){
+    autoCatch.ocrCanvas=document.createElement('canvas');
+    autoCatch.ocrCtx=autoCatch.ocrCanvas.getContext('2d',{willReadFrequently:true});
+  }
+  if(!autoCatch.workCanvas){
+    autoCatch.workCanvas=document.createElement('canvas');
+    autoCatch.workCtx=autoCatch.workCanvas.getContext('2d',{willReadFrequently:true});
+  }
+}
+function extractOcrRoi(roi){
+  const v=document.getElementById('lv');
+  if(!v||v.readyState<2||!v.videoWidth||!v.videoHeight) return null;
+  ensureAutoCanvases();
+  const sx=Math.max(0,Math.floor(v.videoWidth*roi.x));
+  const sy=Math.max(0,Math.floor(v.videoHeight*roi.y));
+  const sw=Math.max(20,Math.floor(v.videoWidth*roi.w));
+  const sh=Math.max(16,Math.floor(v.videoHeight*roi.h));
+  autoCatch.ocrCanvas.width=sw;
+  autoCatch.ocrCanvas.height=sh;
+  autoCatch.workCanvas.width=sw*2;
+  autoCatch.workCanvas.height=sh*2;
+  autoCatch.ocrCtx.drawImage(v,sx,sy,sw,sh,0,0,sw,sh);
+  autoCatch.workCtx.save();
+  autoCatch.workCtx.clearRect(0,0,autoCatch.workCanvas.width,autoCatch.workCanvas.height);
+  autoCatch.workCtx.filter='grayscale(1) contrast(220%) brightness(135%)';
+  autoCatch.workCtx.imageSmoothingEnabled=false;
+  autoCatch.workCtx.drawImage(autoCatch.ocrCanvas,0,0,sw*2,sh*2);
+  autoCatch.workCtx.restore();
+  return {
+    raw: autoCatch.ocrCanvas,
+    proc: autoCatch.workCanvas,
+    sx,sy,sw,sh,
+    vw:v.videoWidth,vh:v.videoHeight
+  };
+}
+async function ocrRoiText(roi,kind='route'){
+  const payload=extractOcrRoi(roi);
+  if(!payload||!autoCatch.worker) return { text:'', norm:'', payload:null };
+  const out=await autoCatch.worker.recognize(payload.proc);
+  const text=(out?.data?.text||'').trim();
+  const norm=normalizeAutoText(text);
+  const meta=`${payload.sw}x${payload.sh} @ ${payload.sx},${payload.sy}`;
+  updateAutoOcrDebug(kind,payload,text,norm,meta);
+  return { text, norm, payload };
+}
+async function ensureAutoAliases(){
+  if(autoCatch.aliasReady&&autoCatch.aliases.length) return;
+  if(!_deNames){
+    try{
+      autoLog('Lade deutsche Pokémon-Namen für DE/EN-Matching…');
+      await loadGermanNames();
+    }catch(e){
+      autoLog('DE-Namen konnten nicht vollständig geladen werden: '+(e?.message||e),'w');
+    }
+  }
+  const all=await getAllPokemon();
+  const byNorm=new Map();
+  let enCount=0,deCount=0;
+  const addAlias=(id,name,lang)=>{
+    const norm=normalizeAutoText(name);
+    if(!norm||norm.length<3) return;
+    const prev=byNorm.get(norm);
+    if(!prev||String(name).length>String(prev.name).length){
+      byNorm.set(norm,{id,name,lang});
+    }
+    if(lang==='de')deCount++; else enCount++;
+  };
+  all.forEach(p=>{
+    addAlias(p.id,p.name,'en');
+    const de=_deNames?.get(p.id);
+    if(de) addAlias(p.id,de,'de');
+  });
+  autoCatch.aliases=[...byNorm.entries()].map(([norm,v])=>({norm,id:v.id,name:v.name,lang:v.lang}))
+    .sort((a,b)=>b.norm.length-a.norm.length);
+  autoCatch.aliasReady=true;
+  autoLog(`Alias-Index gebaut: ${autoCatch.aliases.length} Muster (EN=${enCount}, DE=${deCount})`);
+}
+function buildRouteCandidates(){
+  const out=[];
+  routeData.forEach(loc=>{
+    const names=[loc.name,loc.id,_routeDeNames.get(loc.id)].filter(Boolean);
+    const seen=new Set();
+    names.forEach(raw=>{
+      const norm=normalizeAutoText(String(raw).replace(/-/g,' '));
+      if(!norm||seen.has(norm)) return;
+      seen.add(norm);
+      const fuzzy=norm
+        .replace(/0/g,'o')
+        .replace(/1/g,'i')
+        .replace(/2/g,'z')
+        .replace(/3/g,'e')
+        .replace(/4/g,'a')
+        .replace(/5/g,'s')
+        .replace(/6/g,'g')
+        .replace(/7/g,'t')
+        .replace(/8/g,'b')
+        .replace(/9/g,'g');
+      out.push({
+        routeId:loc.id,
+        norm,
+        fuzzyNorm:fuzzy,
+        routeNo:extractRouteNumber(norm),
+        startsWithRoute: /^route\b/.test(norm)
+      });
+    });
+  });
+  return out;
+}
+function routeMatchScore(textNorm,candNorm){
+  if(!textNorm||!candNorm) return 0;
+  if(textNorm.includes(candNorm)) return 100 + Math.min(40,candNorm.length);
+  const tt=textNorm.split(' ').filter(Boolean);
+  const ct=candNorm.split(' ').filter(Boolean);
+  if(!ct.length) return 0;
+  let hits=0;
+  ct.forEach(tok=>{ if(tok.length>1&&tt.includes(tok)) hits++; });
+  if(!hits) return 0;
+  const ratio=hits/ct.length;
+  const longBonus=Math.min(25,candNorm.length*0.6);
+  return ratio*75 + longBonus;
+}
+function extractAllNumbers(normText){
+  const nums=[];
+  const m=String(normText||'').match(/\b\d{1,3}\b/g);
+  if(!m) return nums;
+  m.forEach(s=>{
+    const n=parseInt(s,10);
+    if(Number.isFinite(n)) nums.push(n);
+  });
+  return nums;
+}
+function extractRouteNumber(normText){
+  const txt=String(normText||'');
+  const r=txt.match(/\broute\s+(\d{1,3})\b/);
+  if(r) return parseInt(r[1],10);
+  const all=extractAllNumbers(txt);
+  if(all.length) return all[0];
+  return null;
+}
+const OCR_ROUTE_DIGIT_MAP = {
+  o:'0', d:'0', q:'0',
+  i:'1', l:'1',
+  z:'2',
+  e:'6',
+  s:'5',
+  b:'8',
+  g:'9',
+  t:'7',
+  a:'4'
+};
+function normalizeRouteTokenToDigits(token){
+  const src=String(token||'').toLowerCase();
+  if(!src) return null;
+  let out='';
+  for(const ch of src){
+    if(ch>='0'&&ch<='9'){ out+=ch; continue; }
+    const mapped=OCR_ROUTE_DIGIT_MAP[ch];
+    if(mapped==null) return null;
+    out+=mapped;
+  }
+  return out||null;
+}
+function parseLeadingRouteNumberStrict(normText){
+  const txt=String(normText||'').trim();
+  if(!/^route\b/.test(txt)) return { startsWithRoute:false, valid:false, routeNo:null, rawToken:'' };
+  const m=txt.match(/^route\s+([a-z0-9]{1,4})\b/);
+  if(!m) return { startsWithRoute:true, valid:false, routeNo:null, rawToken:'' };
+  const rawToken=m[1];
+  const digits=normalizeRouteTokenToDigits(rawToken);
+  if(!digits) return { startsWithRoute:true, valid:false, routeNo:null, rawToken };
+  const n=parseInt(digits,10);
+  if(!Number.isFinite(n)) return { startsWithRoute:true, valid:false, routeNo:null, rawToken };
+  return { startsWithRoute:true, valid:true, routeNo:n, rawToken };
+}
+function fuzzyTextForLocationMatch(normText){
+  return String(normText||'')
+    .replace(/0/g,'o')
+    .replace(/1/g,'i')
+    .replace(/2/g,'z')
+    .replace(/3/g,'e')
+    .replace(/4/g,'a')
+    .replace(/5/g,'s')
+    .replace(/6/g,'g')
+    .replace(/7/g,'t')
+    .replace(/8/g,'b')
+    .replace(/9/g,'g');
+}
+function routeNumberFromId(routeId){
+  const loc=routeData.find(r=>r.id===routeId);
+  if(!loc) return extractRouteNumber(normalizeAutoText(String(routeId||'').replace(/-/g,' ')));
+  const n1=extractRouteNumber(normalizeAutoText(String(loc.name||'').replace(/-/g,' ')));
+  if(n1!=null) return n1;
+  const n2=extractRouteNumber(normalizeAutoText(String(loc.id||'').replace(/-/g,' ')));
+  return n2;
+}
+function detectRouteFromText(textNorm){
+  const cands=buildRouteCandidates();
+  const strict=parseLeadingRouteNumberStrict(textNorm);
+  const fuzzyText=fuzzyTextForLocationMatch(textNorm);
+  let best=null,second=null;
+  cands.forEach(c=>{
+    let score=routeMatchScore(textNorm,c.norm);
+    if(!strict.startsWithRoute){
+      score += routeMatchScore(fuzzyText,c.fuzzyNorm)*0.55;
+    } else {
+      if(!strict.valid) return; // "route" at start requires numeric route token
+      if(c.routeNo!==strict.routeNo) return; // only routes with that exact number
+      score += 220;
+      if(c.startsWithRoute) score += 8;
+    }
+    const threshold = strict.startsWithRoute ? 46 : 58;
+    if(score<threshold) return;
+    const cand={routeId:c.routeId,score,matchedNorm:c.norm,routeNo:c.routeNo,textRouteNo:strict.routeNo,strictRoute:strict.startsWithRoute};
+    if(!best||cand.score>best.score){
+      second=best;best=cand;
+    }else if(!second||cand.score>second.score){
+      second=cand;
+    }
+  });
+  if(strict.startsWithRoute && !strict.valid){
+    return null;
+  }
+  // Ambiguity guard: if top-2 are too close and differ by route number, skip this tick.
+  if(best&&second&&Math.abs(best.score-second.score)<12 && best.routeNo!=null && second.routeNo!=null && best.routeNo!==second.routeNo){
+    return null;
+  }
+  return best;
+}
+function updateRouteCandidate(routeId){
+  const cfg=currentAutoCfg();
+  if(!routeId){autoCatch.routeCandidate=null;autoCatch.routeCandidateHits=0;return;}
+  let requiredHits=cfg.routeConfirmHits;
+  if(autoCatch.lastRouteId && autoCatch.lastRouteId!==routeId){
+    const prevNo=routeNumberFromId(autoCatch.lastRouteId);
+    const nextNo=routeNumberFromId(routeId);
+    if(prevNo!=null && nextNo!=null && Math.abs(prevNo-nextNo)>=2){
+      requiredHits=Math.max(requiredHits,2);
+    }
+  }
+  if(autoCatch.routeCandidate===routeId){
+    autoCatch.routeCandidateHits++;
+  }else{
+    autoCatch.routeCandidate=routeId;
+    autoCatch.routeCandidateHits=1;
+  }
+  if(autoCatch.routeCandidateHits>=requiredHits){
+    autoCatch.lastRouteId=routeId;
+    autoCatch.routeSeenAt=Date.now();
+  }
+}
+function hasCatchMarker(textNorm){
+  return textNorm.includes('wurde gefangen')
+    || textNorm.includes(' gefangen ')
+    || textNorm.startsWith('gefangen ')
+    || textNorm.endsWith(' gefangen')
+    || textNorm.includes('wurde in')
+    || textNorm.includes('wurde auf')
+    || textNorm.includes('was caught')
+    || textNorm.includes(' caught ')
+    || textNorm.includes('was sent to')
+    || textNorm.includes('gotcha');
+}
+function detectPokemonFromText(textNorm){
+  let best=null;
+  for(const a of autoCatch.aliases){
+    if(!textNorm.includes(a.norm)) continue;
+    const idx=textNorm.indexOf(a.norm);
+    const score=(a.norm.length*5)-Math.abs(Math.floor(textNorm.length*0.35)-idx);
+    if(!best||score>best.score) best={...a,score};
+  }
+  if(!best) return null;
+  return {pokeId:best.id,name:best.name,lang:best.lang,matchedNorm:best.norm,score:best.score};
+}
+function canAutoInsert(routeId,pokeId){
+  if(!routeId||!pokeId||myReadonly||myPI<0) return false;
+  if(!routes[myPI]) return false;
+  const existing=routes[myPI][routeId];
+  if(existing?.pokeId||existing?.missed) return false;
+  return true;
+}
+function emitAutoCatch(routeId,pokemon){
+  const cfg=currentAutoCfg();
+  const now=Date.now();
+  const key=`${routeId}:${pokemon.pokeId}`;
+  if(autoCatch.lastEmitKey===key && (now-autoCatch.lastEmitAt)<cfg.eventCooldownMs){
+    autoLog(`Skip emit (cooldown): ${pokemon.name} @ ${autoRouteLabel(routeId)}`,'w');
+    return false;
+  }
+  autoCatch.lastEmitKey=key;
+  autoCatch.lastEmitAt=now;
+  socket.emit('set-route-pokemon',{
+    playerIndex: myPI,
+    routeId,
+    pokemon:{pokeId:pokemon.pokeId,name:pokemon.name,nickname:'',shiny:false,alive:true,missed:false}
+  });
+  autoLog(`Catch eingetragen: ${pokemon.name} [${pokemon.lang||'en'}] @ ${autoRouteLabel(routeId)}`,'ok');
+  toast(`Auto: ${pokemon.name} auf ${autoRouteLabel(routeId)} eingetragen.`);
+  return true;
+}
+async function autoCatchTick(){
+  const cfg=currentAutoCfg();
+  if(!autoCatch.enabled||autoCatch.loading||autoCatch.busy) return;
+  if(myReadonly||myPI<0) return;
+  if(!selectedEdition||!routeData.length){syncAutoCatchUI();return;}
+  if(!socket||!socket.connected) return;
+  if(!isSharing||!localStream){syncAutoCatchUI();return;}
+  if(autoCatch.lastRouteId && (Date.now()-autoCatch.routeSeenAt)>cfg.routeKeepMs){
+    autoCatch.lastRouteId=null;
+  }
+  autoCatch.busy=true;
+  autoCatch.tickNo++;
+  try{
+    const shouldDoRoute=!autoCatch.lastRouteId||autoCatch.phase==='route';
+    if(shouldDoRoute){
+      const routeOcr=await ocrRoiText(cfg.routeRoi,'route');
+      const raw=routeOcr.text;
+      const norm=routeOcr.norm;
+      const strictLead=parseLeadingRouteNumberStrict(norm);
+      const match=detectRouteFromText(norm);
+      updateRouteCandidate(match?.routeId||null);
+      autoLog(`tick#${autoCatch.tickNo} route OCR raw="${compactAutoText(raw)}" norm="${compactAutoText(norm)}" strict=${strictLead.startsWithRoute?(strictLead.valid?`route#${strictLead.routeNo}`:`invalid("${strictLead.rawToken||'?'}")`):'no-route-prefix'} no=${extractRouteNumber(norm)??'-'} match=${match?`${autoRouteLabel(match.routeId)}(#${match.routeNo??'-'}) score=${match.score.toFixed(1)} via="${match.matchedNorm}"`:'none'} confirmed=${autoCatch.lastRouteId?autoRouteLabel(autoCatch.lastRouteId):'none'}`);
+      autoCatch.phase=autoCatch.lastRouteId?'catch':'route';
+    }else{
+      const catchOcr=await ocrRoiText(cfg.catchRoi,'catch');
+      const raw=catchOcr.text;
+      const norm=catchOcr.norm;
+      autoCatch.lastCatchText=norm;
+      const marker=hasCatchMarker(norm);
+      autoLog(`tick#${autoCatch.tickNo} catch OCR raw="${compactAutoText(raw)}" norm="${compactAutoText(norm)}" marker=${marker?'yes':'no'} route=${autoCatch.lastRouteId?autoRouteLabel(autoCatch.lastRouteId):'none'}`);
+      if(marker && autoCatch.lastRouteId){
+        await ensureAutoAliases();
+        const p=detectPokemonFromText(norm);
+        if(p){
+          autoLog(`Pokémon-Match: ${p.name} [${p.lang||'en'}] score=${p.score.toFixed(1)} via="${p.matchedNorm}"`);
+        }else{
+          autoLog('Pokémon-Match: none','w');
+        }
+        if(p && canAutoInsert(autoCatch.lastRouteId,p.pokeId)){
+          emitAutoCatch(autoCatch.lastRouteId,p);
+        }else if(p){
+          autoLog(`Skip emit (Slot belegt/gesperrt): ${p.name} @ ${autoRouteLabel(autoCatch.lastRouteId)}`,'w');
+        }
+      }
+      autoCatch.phase='route';
+    }
+  }catch(e){
+    autoLog('OCR Fehler: '+(e?.message||e),'e');
+  }finally{
+    autoCatch.busy=false;
+    syncAutoCatchUI();
+  }
+}
+async function startAutoRouteCatch(){
+  if(myReadonly){toast('Auto-Erkennung ist für Zuschauer deaktiviert.',1);return;}
+  if(myPI<0){toast('Auto-Erkennung braucht einen Spieler-Slot.',1);return;}
+  autoCatch.enabled=true;
+  autoCatch.loading=true;
+  syncAutoCatchUI();
+  try{
+    const cfg=currentAutoCfg();
+    await ensureAutoWorker();
+    await ensureAutoAliases();
+    autoLog(`Auto-Erkennung gestartet (DE+EN Namen aktiv, Profil=${isFireRedLeafGreenEdition()?'firered-leafgreen':'default'}, interval=${cfg.intervalMs}ms).`,'ok');
+    autoCatch.loading=false;
+    autoCatch.phase='route';
+    restartAutoCatchTimer('Start');
+    syncAutoCatchUI();
+    toast('Auto-Erkennung aktiv. Manuelle Einträge bleiben weiterhin möglich.');
+    setTimeout(()=>{autoCatchTick();},80);
+  }catch(e){
+    dlog('[AUTO] Start fehlgeschlagen: '+(e?.message||e),'e');
+    stopAutoRouteCatch({quiet:true});
+    toast('Auto-Erkennung konnte nicht gestartet werden.',1);
+  }
+}
+function toggleAutoRouteCatch(){
+  if(autoCatch.enabled) stopAutoRouteCatch();
+  else startAutoRouteCatch();
 }
 
 // ═══════════════════════════════════════════════
@@ -3651,6 +4451,7 @@ async function loadGermanNames(){
         }catch(e){}
       }));
     }
+    autoCatch.aliasReady=false; // refresh OCR name aliases once localized names are available
     console.log('[i18n] German names loaded:', _deNames.size);
     // Update picker if open
     const grid=document.getElementById('prg');
@@ -3957,6 +4758,7 @@ function updPBar(){
 }
 function backToLogin(){
   try{
+    stopAutoRouteCatch({quiet:true});
     if(localStream){ localStream.getTracks().forEach(t=>t.stop()); localStream=null; }
     if(socket&&socket.connected) socket.disconnect();
   }catch(_){}
@@ -5283,6 +6085,12 @@ window.onunhandledrejection=function(ev){
   dlog('[PROMISE] '+(r&&r.message?r.message:String(r)),'e');
   if(r&&r.stack)dlog('[STACK] '+r.stack.split('\n').slice(0,3).join(' | '),'e');
 };
+window.addEventListener('beforeunload',()=>{
+  try{
+    if(autoCatch.timer) clearInterval(autoCatch.timer);
+    autoCatch.worker?.terminate?.();
+  }catch(_){}
+});
 
 // Periodic status every 30s
 setInterval(function(){
@@ -5310,6 +6118,7 @@ toggleCreateProtected(false);
 
 // Load editions on page init
 loadEditions();
+syncAutoCatchUI();
 
 
 // ═══════════════════════════════════════════════════════════
