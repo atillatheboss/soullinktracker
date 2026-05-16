@@ -50,6 +50,7 @@
     .slot-picker{display:flex;gap:8px;margin-bottom:16px}
     .active-run-item{display:flex;align-items:center;justify-content:space-between;padding:9px 13px;border-radius:9px;border:1px solid var(--bd);background:var(--sf2);cursor:pointer;transition:all .15s;gap:10px}
     .active-run-item:hover{border-color:var(--a);background:rgba(124,106,255,.07)}
+    .active-run-item.matched{border-color:var(--a);background:rgba(124,106,255,.13);box-shadow:0 0 0 2px rgba(124,106,255,.25);}
     .active-run-item-name{font-size:.86rem;font-weight:700;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .active-run-item-badge{display:flex;align-items:center;gap:5px;flex-shrink:0;font-size:.72rem;font-family:'Space Mono',monospace;color:var(--txd);white-space:nowrap}
     .active-run-dot{width:7px;height:7px;border-radius:50%;background:var(--gr);box-shadow:0 0 5px var(--gr);flex-shrink:0}
@@ -1041,7 +1042,7 @@ async function loadActiveRuns(){
       const playerLabel=hasPlayers
         ?(run.playerCount===1?'1 Spieler':`${run.playerCount} Spieler`)+(run.spectatorCount>0?` · ${run.spectatorCount} 👁`:'')
         :'Niemand online';
-      return `<div class="active-run-item" onclick="selectActiveRun('${run.passphrase.replace(/'/g,"\\'")}')">
+      return `<div class="active-run-item" data-passphrase="${run.passphrase.replace(/"/g,'&quot;')}" onclick="selectActiveRun('${run.passphrase.replace(/'/g,"\\'")}')">
         <div style="display:flex;align-items:center;gap:8px;min-width:0">
           ${dot}
           <div class="active-run-item-name" style="${hasPlayers?'':'color:var(--txm)'}">${run.name.replace(/</g,'&lt;')}${lock}</div>
@@ -1294,6 +1295,14 @@ function onPassphraseInput(val) {
   if (section) section.style.display = 'none';
   setJoinPasswordVisibility(false);
   const pp = val.trim();
+
+  // Highlight matching run in the list
+  document.querySelectorAll('#active-runs-list .active-run-item').forEach(el => {
+    const matches = pp.length > 0 && el.getAttribute('data-passphrase') === pp;
+    el.classList.toggle('matched', matches);
+    if (matches) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  });
+
   if (pp.length < 5) return;
   _slotDebounce = setTimeout(() => loadSlots(pp), 500);
 }
