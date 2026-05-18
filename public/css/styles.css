@@ -110,9 +110,9 @@
     .player-badge-row{display:flex;gap:4px;flex-wrap:wrap;align-items:center}
     .gym-badge{width:34px;height:34px;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;border-radius:50%;border:2px solid transparent;transition:all .2s;position:relative;user-select:none}
     .gym-badge img{width:30px;height:30px;object-fit:contain;image-rendering:pixelated}
-    .gym-badge.state-0{filter:grayscale(1);opacity:.25}
-    .gym-badge.state-1{filter:none;opacity:.7;animation:badge-pulse 1.2s ease-in-out infinite}
-    .gym-badge.state-2{filter:none;opacity:1;border-color:var(--yw);box-shadow:0 0 8px rgba(250,204,21,.4)}
+    .gym-badge.state-0{filter:grayscale(1);opacity:.25;min-height:50px;max-height:50px}
+    .gym-badge.state-1{filter:none;opacity:.7;animation:badge-pulse 1.2s ease-in-out infinite;min-height:50px;max-height:50px}
+    .gym-badge.state-2{filter:none;opacity:1;border-color:var(--yw);box-shadow:0 0 8px rgba(250,204,21,.4);min-height:50px;max-height:50px}
     .lc-wrap{display:flex;flex-direction:column;align-items:center;gap:4px;position:relative;justify-content:flex-end}
     .lc-inp{width:48px;font-size:.8rem;font-family:'Space Mono',monospace;background:var(--sf2);border:1px solid var(--bd);border-radius:5px;padding:4px 4px;color:var(--tx);text-align:center;outline:none}
     .lc-inp:focus{border-color:var(--a)}
