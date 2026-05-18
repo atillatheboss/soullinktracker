@@ -2,8 +2,11 @@
 
 Web app for SoulLink runs with integrated screen sharing, team/box management, route tracking, battle analysis, run history, rules/trainer-caps editing, and admin tools.
 
+<<<<<<< HEAD
 [Try it out here](https://soullinktracker.onrender.com)
 
+=======
+>>>>>>> 9dcd6e3 (changed maps path)
 ## What the app can do
 
 ### Login / Run Management
@@ -113,9 +116,9 @@ For browser screen capture, use HTTPS (except `localhost`, depending on browser 
 ## Map Data (Important)
 
 The app serves maps from:
-- `../maps` relative to `server.js`
+- `./maps` relative to `server.js` (project root).
 
-If maps are missing, ensure a `maps` directory exists at that level.
+If maps are missing, ensure a `maps` directory exists either in the project root or one level up.
 
 ## `.env` variables
 

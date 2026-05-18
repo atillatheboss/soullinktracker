@@ -391,7 +391,7 @@ app.use((req, res, next) => {
 });
 
 app.use(express.static(path.join(__dirname, 'public')));
-app.use('/maps', express.static(path.join(__dirname, '..', 'maps')));
+app.use('/maps', express.static(path.join(__dirname, 'maps')));
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
   next();
