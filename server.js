@@ -780,6 +780,8 @@ io.on('connection', (socket) => {
   // Move a specific link's pokemon to team slots — only updates slots belonging to THIS link,
   // leaving other links untouched. Displaced pokemon are auto-boxed.
   socket.on('move-link-to-team',({linkId,slotIndex})=>{ if(isRO()) return; const c=ctx();if(!c)return; const R=c.R; const lk=R.links.find(l=>l.id===linkId);if(!lk)return;
+    // Snapshot of teams BEFORE changes
+    const teamsBeforeSnapshot = [0,1,2].map(pi => R.team[pi].map(pk => summarizePoke(pk)));
     const changes = [];
     lk.slots.forEach(s=>{
       const pk=getPokeAt(R,s.playerIndex,s.location,s.slotIndex);if(!pk?.pokeId)return;
@@ -820,7 +822,9 @@ io.on('connection', (socket) => {
       });
     });
     if (changes.length) {
-      addRunEvent(R,'link-team-swapped',{linkId,targetSlotIndex:slotIndex,changes});
+      // Snapshot of teams AFTER changes
+      const teamsAfterSnapshot = [0,1,2].map(pi => R.team[pi].map(pk => summarizePoke(pk)));
+      addRunEvent(R,'link-team-swapped',{linkId,targetSlotIndex:slotIndex,changes,teamsBeforeSnapshot,teamsAfterSnapshot});
     }
     bcast(c);saveRun(myPP);
   });
