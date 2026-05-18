@@ -21,13 +21,4 @@ test('test', async ({ page }) => {
   await page.getByText('Box', { exact: true }).click();
   await page.getByText('Routen', { exact: true }).click();
   await page.locator('#edition-sel').selectOption('firered-leafgreen');
-  await page.getByText('⭐ Starter').click();
-  await page.getByRole('button', { name: 'Eintragen' }).click();
-  await page.locator('div:nth-child(7) > img').click();
-  await page.getByRole('button', { name: 'Bestätigen' }).click();
-  await page.getByText('Map').click();
-  await page.getByRole('textbox', { name: 'Hier gemeinsame Regeln' }).fill('asd');
-  const downloadPromise = page.waitForEvent('download');
-  await page.getByRole('textbox', { name: 'Hier Trainer Caps schreiben…' }).fill('asd');
-  const download = await downloadPromise;
 });

@@ -63,7 +63,7 @@ export default defineConfig({
 
   /* Automatically start app before tests */
   webServer: {
-    command: 'npm run dev',
+    command: 'node server.js',
     url: 'http://localhost:3000',
     reuseExistingServer: !process.env.CI,
     timeout: 120000,
