@@ -137,3 +137,4 @@ npm run dev
 
 - SQLite file: `soullink.db`
 - Stores runs, run state, and saved rulesets.
+- Contains test data
