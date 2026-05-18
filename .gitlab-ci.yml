@@ -1,0 +1,44 @@
+stages:
+  - check
+  - deploy
+
+image: node:20
+
+cache:
+  paths:
+    - node_modules/
+
+before_script:
+  - npm install
+
+syntax-check:
+  stage: check
+  script:
+    - node --check server.js
+
+deploy:
+  stage: deploy
+  only:
+    - main
+
+  before_script:
+    - apt-get update -y
+    - apt-get install -y openssh-client rsync
+    - eval $(ssh-agent -s)
+
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
+
+    - mkdir -p ~/.ssh
+    - chmod 700 ~/.ssh
+
+    - ssh-keyscan -H $SERVER_HOST >> ~/.ssh/known_hosts
+
+  script:
+    - rsync -avz --delete ./ $SERVER_USER@$SERVER_HOST:/var/www/soullinktracker/
+
+    - |
+      ssh $SERVER_USER@$SERVER_HOST "
+        cd /var/www/soullinktracker &&
+        npm install &&
+        pm2 restart soullinktracker
+      "
