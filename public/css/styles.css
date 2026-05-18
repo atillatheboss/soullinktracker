@@ -448,10 +448,10 @@
     .rh-snap-section{display:flex;flex-direction:column;gap:5px;}
     .rh-snap-title{font-weight:700;color:var(--txd);font-family:'Space Mono',monospace;font-size:.58rem;letter-spacing:.05em;text-transform:uppercase}
     .rh-snap-row{display:flex;gap:6px;flex-wrap:wrap;align-items:flex-start}
-    .rh-snap-player-col{display:flex;flex-direction:column;gap:3px;align-items:center}
+    .rh-snap-player-col{display:flex;flex-direction:column;gap:3px;align-items:center;padding-right:50px}
     .rh-snap-player-label{font-size:.6rem;font-weight:700;color:var(--tx);text-align:center;min-width:52px}
     .rh-team-snapshot{display:flex;gap:2px;flex-wrap:nowrap;align-items:flex-start}
-    .rh-snap-slot{display:flex;flex-direction:column;align-items:center;gap:2px;padding:2px;background:var(--sf2);border:1px solid var(--bd);border-radius:4px;min-width:46px;flex-shrink:0}
+    .rh-snap-slot{display:flex;flex-direction:column;align-items:center;gap:2px;padding:2px;background:var(--sf2);border:1px solid var(--bd);border-radius:4px;min-width:50px;flex-shrink:0;min-height:50px;max-height:50px}
     .rh-snap-sprite{width:30px;height:30px;image-rendering:pixelated;object-fit:contain}
     .rh-snap-name{font-size:.52rem;text-align:center;color:var(--tx);width:44px;overflow:hidden;text-overflow:ellipsis;line-height:1;white-space:nowrap}
     .rh-snap-slot-empty{background:var(--sf2);border:1px solid var(--bd);flex-shrink:0;display:flex;align-items:center;justify-content:center}
