@@ -10,6 +10,7 @@ cache:
 
 before_script:
   - npm install
+  - node server.js
 
 syntax-check:
   stage: check
