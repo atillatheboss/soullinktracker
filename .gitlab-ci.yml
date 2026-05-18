@@ -19,7 +19,4 @@ syntax-check:
 playwright-tests:
   stage: test
   script:
-    - npx playwright install --with-deps
-    - npm run dev &
-    - npx wait-on http://localhost:3000
     - npx playwright test

@@ -10,6 +10,7 @@ on:
 jobs:
   test:
     timeout-minutes: 60
+
     runs-on: ubuntu-latest
 
     steps:
@@ -24,15 +25,6 @@ jobs:
 
       - name: Install Playwright Browsers
         run: npx playwright install --with-deps
-
-      - name: Install wait-on
-        run: npm install --save-dev wait-on
-
-      - name: Start app
-        run: npm run dev &
-
-      - name: Wait for app
-        run: npx wait-on http://localhost:3000
 
       - name: Run Playwright tests
         run: npx playwright test
