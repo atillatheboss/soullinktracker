@@ -1933,6 +1933,81 @@ function renderBoxSB(){
     sb.appendChild(sec);
   });
 }
+function isStandaloneShiny(pi,bn,slotNum){
+  const pk=box[pi]?.[bn]?.[slotNum];
+  if(!pk?.shiny||!pk?.pokeId||pk?.missed) return false;
+  const loc='box:'+bn+':'+slotNum;
+  return !isLinked(pi,loc)&&!isBroken(pi,loc);
+}
+
+function openStandaloneShinySwap(pi,bn,slotNum){
+  const shinyPk=box[pi][bn][slotNum];
+  if(!shinyPk) return;
+  const body=document.getElementById('sbsm-body');
+  body.innerHTML='';
+  const candidates=[];
+  links.forEach(lk=>{
+    if(lk.broken) return;
+    lk.slots.forEach(s=>{
+      if(s.playerIndex!==pi) return;
+      const pk=getPAt(s);
+      if(!pk?.pokeId||pk?.missed) return;
+      candidates.push({lk,s,pk});
+    });
+  });
+  const shinyName=pkName(shinyPk);
+  const hdr=document.createElement('div');
+  hdr.style.cssText='display:flex;align-items:center;gap:8px;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--bd)';
+  hdr.innerHTML='<img src="'+spr(shinyPk.pokeId,true)+'" style="width:36px;height:36px;image-rendering:pixelated"><span style="font-size:.78rem;font-weight:700">✨ '+shinyName+'</span><span style="color:var(--txd);font-size:.68rem;font-family:Space Mono,monospace">Box '+(bn+1)+'['+(slotNum+1)+']</span>';
+  body.appendChild(hdr);
+  if(!candidates.length){
+    const emp=document.createElement('div');emp.className='empty-state';emp.textContent='Keine verlinkten Pokémon verfügbar.';body.appendChild(emp);
+  } else {
+    const lbl=document.createElement('div');lbl.style.cssText='font-size:.62rem;color:var(--txd);font-family:Space Mono,monospace;margin-bottom:8px';lbl.textContent='Mit welchem Pokémon tauschen?';body.appendChild(lbl);
+    candidates.forEach(function({lk,s,pk}){
+      const row=document.createElement('div');
+      row.style.cssText='display:flex;align-items:center;gap:8px;padding:8px;border-radius:9px;border:1px solid var(--bd);margin-bottom:6px;background:var(--sf2)';
+      const pn=pkName(pk);
+      const locLabel=s.location==='team'?'Team '+(s.slotIndex+1):typeof s.location==='object'&&'box'in s.location?'Box '+(s.location.box+1)+'['+(s.location.slot+1)+']':'Route';
+      row.innerHTML='<span class="pi-badge pi-'+s.playerIndex+'">'+(s.playerIndex+1)+'</span>'
+        +'<img src="'+spr(pk.pokeId,pk.shiny)+'" style="width:32px;height:32px;image-rendering:pixelated">'
+        +'<div style="flex:1"><div style="font-size:.72rem;font-weight:700">'+pn+(pk.shiny?'✨':'')+'</div>'
+        +'<div style="font-size:.6rem;color:var(--txd);font-family:Space Mono,monospace">'+locLabel+' · '+(lk.routeId||'Link #'+lk.id)+'</div></div>'
+        +'<span style="color:var(--txd);font-size:.8rem">↔</span>'
+        +'<img src="'+spr(shinyPk.pokeId,true)+'" style="width:32px;height:32px;image-rendering:pixelated">';
+      const btn=document.createElement('button');btn.className='btn btn-xs btn-w';btn.textContent='Tauschen';
+      btn.onclick=function(){
+        const newLinkPk=Object.assign({},shinyPk,{shinySwapOriginId:pk.pokeId,shinySwapOriginName:pk.name,shinySwapBoxPi:pi,shinySwapBoxBn:bn,shinySwapBoxSlot:slotNum});
+        const newBoxPk=Object.assign({},pk,{shinySwapRestoreTo:{location:s.location,slotIndex:s.slotIndex,playerIndex:s.playerIndex}});
+        setPAt(s,newLinkPk);
+        socket.emit('set-box-pokemon',{playerIndex:pi,boxNum:bn,slotNum:slotNum,pokemon:newBoxPk});
+        toast('✨ '+pn+' ↔ '+shinyName+' getauscht');
+        document.getElementById('sbsm').classList.remove('open');
+      };
+      row.appendChild(btn);body.appendChild(row);
+    });
+  }
+  document.getElementById('sbsm').classList.add('open');
+}
+
+function restoreShinySwap(pi,bn,slotNum){
+  const boxPk=box[pi][bn][slotNum];
+  if(!boxPk?.shinySwapRestoreTo) return;
+  const dest=boxPk.shinySwapRestoreTo;
+  let shinyPk=null;
+  if(dest.location==='team') shinyPk=team[dest.playerIndex]?.[dest.slotIndex];
+  else if(typeof dest.location==='object'&&'box'in dest.location) shinyPk=box[dest.playerIndex]?.[dest.location.box]?.[dest.location.slot];
+  const origPk=Object.assign({},boxPk);
+  delete origPk.shinySwapRestoreTo;
+  setPAt({playerIndex:dest.playerIndex,location:dest.location,slotIndex:dest.slotIndex},origPk);
+  if(shinyPk){
+    const cleanShiny=Object.assign({},shinyPk);
+    delete cleanShiny.shinySwapOriginId; delete cleanShiny.shinySwapOriginName;
+    delete cleanShiny.shinySwapBoxPi; delete cleanShiny.shinySwapBoxBn; delete cleanShiny.shinySwapBoxSlot;
+    socket.emit('set-box-pokemon',{playerIndex:pi,boxNum:bn,slotNum:slotNum,pokemon:cleanShiny});
+  }
+  toast('↩ Tausch rükgängig gemacht');
+}
 function renderBoxMain(){
   const main=document.getElementById('box-main');if(!main)return;
   const {pi,bn}=bv;
@@ -1965,7 +2040,7 @@ function renderBoxMain(){
     // --- Linksklick: öffnet weiterhin Picker/Modal ---
     d.addEventListener('click', ()=>{
       if(pk?.pokeId || pk?.missed){
-        // openBoxMenu(pi,bn,s);
+        //openBoxMenuModal(pi,bn,s); // hier sollte dein bestehendes Modal öffnen
       } else {
         openPicker('box',pi,s,bn);
       }
@@ -2061,82 +2136,6 @@ function renderBoxMain(){
     grid.appendChild(d);
   }
 }
-window.isStandaloneShiny = function(pi,bn,slotNum){
-  const pk=box[pi]?.[bn]?.[slotNum];
-  if(!pk?.shiny || !pk?.pokeId || pk?.missed) return false;
-  const loc='box:'+bn+':'+slotNum;
-  return !isLinked(pi,loc) && !isBroken(pi,loc);
-};
-
-function openStandaloneShinySwap(pi,bn,slotNum){
-  const shinyPk=box[pi][bn][slotNum];
-  if(!shinyPk) return;
-  const body=document.getElementById('sbsm-body');
-  body.innerHTML='';
-  const candidates=[];
-  links.forEach(lk=>{
-    if(lk.broken) return;
-    lk.slots.forEach(s=>{
-      if(s.playerIndex!==pi) return;
-      const pk=getPAt(s);
-      if(!pk?.pokeId||pk?.missed) return;
-      candidates.push({lk,s,pk});
-    });
-  });
-  const shinyName=pkName(shinyPk);
-  const hdr=document.createElement('div');
-  hdr.style.cssText='display:flex;align-items:center;gap:8px;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--bd)';
-  hdr.innerHTML='<img src="'+spr(shinyPk.pokeId,true)+'" style="width:36px;height:36px;image-rendering:pixelated"><span style="font-size:.78rem;font-weight:700">✨ '+shinyName+'</span><span style="color:var(--txd);font-size:.68rem;font-family:Space Mono,monospace">Box '+(bn+1)+'['+(slotNum+1)+']</span>';
-  body.appendChild(hdr);
-  if(!candidates.length){
-    const emp=document.createElement('div');emp.className='empty-state';emp.textContent='Keine verlinkten Pokémon verfügbar.';body.appendChild(emp);
-  } else {
-    const lbl=document.createElement('div');lbl.style.cssText='font-size:.62rem;color:var(--txd);font-family:Space Mono,monospace;margin-bottom:8px';lbl.textContent='Mit welchem Pokémon tauschen?';body.appendChild(lbl);
-    candidates.forEach(function({lk,s,pk}){
-      const row=document.createElement('div');
-      row.style.cssText='display:flex;align-items:center;gap:8px;padding:8px;border-radius:9px;border:1px solid var(--bd);margin-bottom:6px;background:var(--sf2)';
-      const pn=pkName(pk);
-      const locLabel=s.location==='team'?'Team '+(s.slotIndex+1):typeof s.location==='object'&&'box'in s.location?'Box '+(s.location.box+1)+'['+(s.location.slot+1)+']':'Route';
-      row.innerHTML='<span class="pi-badge pi-'+s.playerIndex+'">'+(s.playerIndex+1)+'</span>'
-        +'<img src="'+spr(pk.pokeId,pk.shiny)+'" style="width:32px;height:32px;image-rendering:pixelated">'
-        +'<div style="flex:1"><div style="font-size:.72rem;font-weight:700">'+pn+(pk.shiny?'✨':'')+'</div>'
-        +'<div style="font-size:.6rem;color:var(--txd);font-family:Space Mono,monospace">'+locLabel+' · '+(lk.routeId||'Link #'+lk.id)+'</div></div>'
-        +'<span style="color:var(--txd);font-size:.8rem">↔</span>'
-        +'<img src="'+spr(shinyPk.pokeId,true)+'" style="width:32px;height:32px;image-rendering:pixelated">';
-      const btn=document.createElement('button');btn.className='btn btn-xs btn-w';btn.textContent='Tauschen';
-      btn.onclick=function(){
-        const newLinkPk=Object.assign({},shinyPk,{shinySwapOriginId:pk.pokeId,shinySwapOriginName:pk.name,shinySwapBoxPi:pi,shinySwapBoxBn:bn,shinySwapBoxSlot:slotNum});
-        const newBoxPk=Object.assign({},pk,{shinySwapRestoreTo:{location:s.location,slotIndex:s.slotIndex,playerIndex:s.playerIndex}});
-        setPAt(s,newLinkPk);
-        socket.emit('set-box-pokemon',{playerIndex:pi,boxNum:bn,slotNum:slotNum,pokemon:newBoxPk});
-        toast('✨ '+pn+' ↔ '+shinyName+' getauscht');
-        document.getElementById('sbsm').classList.remove('open');
-      };
-      row.appendChild(btn);body.appendChild(row);
-    });
-  }
-  document.getElementById('sbsm').classList.add('open');
-}
-
-function restoreShinySwap(pi,bn,slotNum){
-  const boxPk=box[pi][bn][slotNum];
-  if(!boxPk?.shinySwapRestoreTo) return;
-  const dest=boxPk.shinySwapRestoreTo;
-  let shinyPk=null;
-  if(dest.location==='team') shinyPk=team[dest.playerIndex]?.[dest.slotIndex];
-  else if(typeof dest.location==='object'&&'box'in dest.location) shinyPk=box[dest.playerIndex]?.[dest.location.box]?.[dest.location.slot];
-  const origPk=Object.assign({},boxPk);
-  delete origPk.shinySwapRestoreTo;
-  setPAt({playerIndex:dest.playerIndex,location:dest.location,slotIndex:dest.slotIndex},origPk);
-  if(shinyPk){
-    const cleanShiny=Object.assign({},shinyPk);
-    delete cleanShiny.shinySwapOriginId; delete cleanShiny.shinySwapOriginName;
-    delete cleanShiny.shinySwapBoxPi; delete cleanShiny.shinySwapBoxBn; delete cleanShiny.shinySwapBoxSlot;
-    socket.emit('set-box-pokemon',{playerIndex:pi,boxNum:bn,slotNum:slotNum,pokemon:cleanShiny});
-  }
-  toast('↩ Tausch rükgängig gemacht');
-}
-
 function openBoxMenu(pi,bn,slotNum){
   const pk=box[pi][bn][slotNum];if(!pk)return;
   const nm=pk.missed?'nicht gefangen':(pkName(pk)||'?');
