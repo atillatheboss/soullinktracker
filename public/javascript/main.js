@@ -2025,7 +2025,7 @@ function renderBoxMain(){
     const standaloneShiny=pk?.shiny&&pk?.pokeId&&!lnk&&!brk&&!pk?.missed;
     const isSwappedIn=!!pk?.shinySwapOriginId;
 
-    d.className='bs'+(pk?.pokeId||pk?.missed?' bp':'')+(pk?.shiny&&!isStandaloneShiny?' bsh':'')+(pk?.pokeId&&!pk.alive?' bd':'')+(lnk?' bl':'')+(brk?' bbr':'')+(pk?.missedInitiator?' bm-initiator':pk?.missed?' bm':'')+(isStandaloneShiny?' bsh-standalone':'')+(isSwappedIn?' bsh-swapped':'');
+    d.className='bs'+(pk?.pokeId||pk?.missed?' bp':'')+(pk?.shiny&&!standaloneShiny?' bsh':'')+(pk?.pokeId&&!pk.alive?' bd':'')+(lnk?' bl':'')+(brk?' bbr':'')+(pk?.missedInitiator?' bm-initiator':pk?.missed?' bm':'')+(standaloneShiny?' bsh-standalone':'')+(isSwappedIn?' bsh-swapped':'');
     d.innerHTML=`<div class="bsn">${s+1}</div>`;
     if(lnk||brk)d.innerHTML+=`<div class="bsld${brk?' broken':lnk&&pk?.missed?' missed':''}"></div>`;
     if(pk?.shiny)d.innerHTML+=`<div class="bssh">✨</div>`;
