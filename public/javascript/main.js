@@ -1995,11 +1995,42 @@ function renderBoxMain(){
       menu.style.opacity='0';
       menu.style.transform='scale(0.8)';
       menu.style.transition='transform 0.15s ease, opacity 0.15s ease';
-      menu.textContent='Slot leeren';
-      menu.onclick=()=>{
+
+      // --- Slot leeren ---
+      const clearSlot = document.createElement('div');
+      clearSlot.textContent = 'Slot leeren';
+      clearSlot.style.padding = '4px 8px';
+      clearSlot.addEventListener('click', ()=>{
         socket.emit('set-box-pokemon',{playerIndex:pi,boxNum:bn,slotNum:s,pokemon:null});
         menu.remove();
-      };
+      });
+      menu.appendChild(clearSlot);
+
+      // --- Shiny-Tausch hinzufügen, falls relevant ---
+      if(isStandaloneShiny(pi,bn,s)){
+        const shinySwap = document.createElement('div');
+        shinySwap.textContent = '✨ Shiny-Tausch';
+        shinySwap.style.padding = '4px 8px';
+        shinySwap.style.marginTop = '4px';
+        shinySwap.addEventListener('click', ()=>{
+          openStandaloneShinySwap(pi,bn,s);
+          menu.remove();
+        });
+        menu.appendChild(shinySwap);
+      }
+
+      // --- Tausch rückgängig hinzufügen, falls relevant ---
+      if(pk.shinySwapRestoreTo){
+        const restoreSwap = document.createElement('div');
+        restoreSwap.textContent = '↩ Tausch rückgängig';
+        restoreSwap.style.padding = '4px 8px';
+        restoreSwap.style.marginTop = '4px';
+        restoreSwap.addEventListener('click', ()=>{
+          restoreShinySwap(pi,bn,s);
+          menu.remove();
+        });
+        menu.appendChild(restoreSwap);
+      }
 
       document.body.appendChild(menu);
 
