@@ -1965,7 +1965,7 @@ function renderBoxMain(){
     // --- Linksklick: öffnet weiterhin Picker/Modal ---
     d.addEventListener('click', ()=>{
       if(pk?.pokeId || pk?.missed){
-        openBoxMenu(pi,bn,s);
+        // openBoxMenu(pi,bn,s);
       } else {
         openPicker('box',pi,s,bn);
       }
@@ -2063,10 +2063,10 @@ function renderBoxMain(){
 }
 window.isStandaloneShiny = function(pi,bn,slotNum){
   const pk=box[pi]?.[bn]?.[slotNum];
-  if(!pk?.shiny||!pk?.pokeId||pk?.missed) return false;
+  if(!pk?.shiny || !pk?.pokeId || pk?.missed) return false;
   const loc='box:'+bn+':'+slotNum;
-  return !isLinked(pi,loc)&&!isBroken(pi,loc);
-}
+  return !isLinked(pi,loc) && !isBroken(pi,loc);
+};
 
 function openStandaloneShinySwap(pi,bn,slotNum){
   const shinyPk=box[pi][bn][slotNum];
