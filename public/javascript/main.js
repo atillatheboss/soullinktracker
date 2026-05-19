@@ -1965,7 +1965,7 @@ function renderBoxMain(){
     // --- Linksklick: öffnet weiterhin Picker/Modal ---
     d.addEventListener('click', ()=>{
       if(pk?.pokeId || pk?.missed){
-        openBoxMenuModal(pi,bn,s); // hier sollte dein bestehendes Modal öffnen
+        openBoxMenu(pi,bn,s);
       } else {
         openPicker('box',pi,s,bn);
       }
@@ -2061,7 +2061,7 @@ function renderBoxMain(){
     grid.appendChild(d);
   }
 }
-function isStandaloneShiny(pi,bn,slotNum){
+window.isStandaloneShiny = function(pi,bn,slotNum){
   const pk=box[pi]?.[bn]?.[slotNum];
   if(!pk?.shiny||!pk?.pokeId||pk?.missed) return false;
   const loc='box:'+bn+':'+slotNum;
