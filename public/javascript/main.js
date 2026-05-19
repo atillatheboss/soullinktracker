@@ -2022,7 +2022,7 @@ function renderBoxMain(){
     const pk=box[pi][bn][s];
     const ls=`box:${bn}:${s}`;const lnk=isLinked(pi,ls),brk=isBroken(pi,ls);
     const d=document.createElement('div');
-    const isStandaloneShiny=pk?.shiny&&pk?.pokeId&&!lnk&&!brk&&!pk?.missed;
+    const standaloneShiny=pk?.shiny&&pk?.pokeId&&!lnk&&!brk&&!pk?.missed;
     const isSwappedIn=!!pk?.shinySwapOriginId;
 
     d.className='bs'+(pk?.pokeId||pk?.missed?' bp':'')+(pk?.shiny&&!isStandaloneShiny?' bsh':'')+(pk?.pokeId&&!pk.alive?' bd':'')+(lnk?' bl':'')+(brk?' bbr':'')+(pk?.missedInitiator?' bm-initiator':pk?.missed?' bm':'')+(isStandaloneShiny?' bsh-standalone':'')+(isSwappedIn?' bsh-swapped':'');
@@ -2082,7 +2082,7 @@ function renderBoxMain(){
       menu.appendChild(clearSlot);
 
       // --- Shiny-Tausch hinzufügen, falls relevant ---
-      if(isStandaloneShiny(pi,bn,s)){
+      if(standaloneShiny(pi,bn,s)){
         const shinySwap = document.createElement('div');
         shinySwap.textContent = '✨ Shiny-Tausch';
         shinySwap.style.padding = '4px 8px';
