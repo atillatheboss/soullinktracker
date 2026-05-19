@@ -4733,7 +4733,7 @@ function _pushBattleUpdate() {
     if (pi !== myPI) block.remove();
   });
   // Expand own block and remove collapse header
-  target.querySelectorAll('.bt-player-body').forEach(b => b.classList.remove('collapsed'));
+  //target.querySelectorAll('.bt-player-body').forEach(b => b.classList.remove('collapsed'));
   target.querySelectorAll('.bt-player-header').forEach(h => {
     h.style.cursor = 'default';
     h.onclick = null;
@@ -4885,9 +4885,10 @@ async function renderBattle() {
     block.className = 'bt-player-block';
     const header = document.createElement('div');
     header.className = 'bt-player-header';
-    header.innerHTML = `<span class="pi-badge pi-${pi}">${pi+1}</span>${getPN(pi)}<span style="font-size:.65rem;color:var(--txd);margin-left:4px;font-family:'Space Mono',monospace">(${pokes.length} ${battleScope==='team'?'im Team':'Pokémon'})</span><span class="bt-collapse-icon">${pi===myPI?'▼':'▶'}</span>`;
+    header.innerHTML = `<span class="pi-badge pi-${pi}">${pi+1}</span>${getPN(pi)}<span style="font-size:.65rem;color:var(--txd);margin-left:4px;font-family:'Space Mono',monospace">(${pokes.length} ${battleScope==='team'?'im Team':'Pokémon'})</span><span class="bt-collapse-icon">▶</span>`;
     const body = document.createElement('div');
-    body.className = 'bt-player-body' + (pi===myPI ? ' collapsed' : '');
+    body.className = 'bt-player-body collapsed';
+    
     header.onclick = () => {
       const nowCollapsed = body.classList.toggle('collapsed');
       header.querySelector('.bt-collapse-icon').textContent = nowCollapsed ? '▶' : '▼';
