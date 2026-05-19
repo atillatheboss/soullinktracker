@@ -1334,6 +1334,27 @@ function renderTBar(pi,ci){
 // ═══════════════════════════════════════════════
 // SOULLINK PAGE
 // ═══════════════════════════════════════════════
+
+// ── Helper: Locations sicher vergleichen (team/box/route) ──
+function locationsEqual(loc1, loc2){
+  if(loc1 === 'team' && loc2 === 'team') return true;
+  if(typeof loc1 === 'object' && typeof loc2 === 'object'){
+    if('box' in loc1 && 'box' in loc2) return loc1.box === loc2.box && loc1.slot === loc2.slot;
+    if('route' in loc1 && 'route' in loc2) return loc1.route === loc2.route;
+  }
+  return JSON.stringify(loc1) === JSON.stringify(loc2);
+}
+
+// ── Helper: Ersten freien Box-Slot für Spieler finden ──
+function findFreeBoxSlot(pi){
+  for(let b=0;b<NB;b++){
+    for(let sl=0;sl<BS;sl++){
+      if(!box[pi]?.[b]?.[sl]?.pokeId && !box[pi]?.[b]?.[sl]?.missed) return {b,sl};
+    }
+  }
+  return null;
+}
+
 function renderSL(){renderTE();renderLSG();renderLL();}
 function getAPIs(){const s=new Set();if(myPI>=0)s.add(myPI);peers.forEach(p=>{if(p.playerIndex>=0)s.add(p.playerIndex);});return[...s].sort();}
 function getPN(pi){if(pi===myPI)return myName;for(const[,p]of peers)if(p.playerIndex===pi)return p.name;return'Spieler '+(pi+1);}
@@ -1585,10 +1606,41 @@ function openShinySwapModal(linkId){
         +'<div style="flex:1"><div style="font-size:.72rem;font-weight:700">'+tn+(targetPk.shiny?'✨':'')+'</div>'
         +'<div style="font-size:.6rem;color:var(--txd);font-family:Space Mono,monospace">Link #'+targetLinkId+'</div></div>';
       const btn=document.createElement('button');btn.className='btn btn-xs btn-w';btn.textContent='Tauschen';
+      
+      // ── NEUE LOGIK: Shiny austauschen mit Original-Return ──
       btn.onclick=function(){
-        setPAt(shinySlot,Object.assign({},targetPk));
-        setPAt(targetSlot,Object.assign({},shinyPk));
-        toast('✨ '+sn+' ↔ '+tn);
+        if(shinyPk.shinySwapOriginId!==undefined){
+          let origBoxB=-1,origBoxSl=-1,originalPk=null;
+          for(let b=0;b<NB;b++){
+            for(let sl=0;sl<BS;sl++){
+              const bpk=box[pi]?.[b]?.[sl];
+              if(bpk?.shinySwapRestoreTo){
+                const d=bpk.shinySwapRestoreTo;
+                if(d.playerIndex===pi&&locationsEqual(d.location,shinySlot.location)&&d.slotIndex===shinySlot.slotIndex){
+                  origBoxB=b;origBoxSl=sl;originalPk=bpk;break;
+                }
+              }
+            }
+            if(originalPk)break;
+          }
+          if(originalPk){
+            const origClean={...originalPk};delete origClean.shinySwapRestoreTo;
+            setPAt(shinySlot,origClean);
+            const shinyClean={...shinyPk};
+            delete shinyClean.shinySwapOriginId;delete shinyClean.shinySwapOriginName;
+            delete shinyClean.shinySwapBoxPi;delete shinyClean.shinySwapBoxBn;delete shinyClean.shinySwapBoxSlot;
+            setPAt(targetSlot,shinyClean);
+            const boxClean={...originalPk};delete boxClean.shinySwapRestoreTo;
+            socket.emit('set-box-pokemon',{playerIndex:pi,boxNum:origBoxB,slotNum:origBoxSl,pokemon:boxClean});
+            toast('✨ '+sn+' → Link #'+targetLinkId+' | Original zurück zu '+getPN(pi));
+          }else{
+            setPAt(shinySlot,{...targetPk});setPAt(targetSlot,{...shinyPk});
+            toast('✨ '+sn+' ↔ '+pkName(targetPk));
+          }
+        }else{
+          setPAt(shinySlot,{...targetPk});setPAt(targetSlot,{...shinyPk});
+          toast('✨ '+sn+' ↔ '+pkName(targetPk));
+        }
         document.getElementById('ssm').classList.remove('open');
       };
       row.appendChild(btn);body.appendChild(row);
@@ -1678,19 +1730,71 @@ function buildSwapRow(e,isBlocked){
     const badge=document.createElement('span');badge.className='lbadge broken';badge.style.fontSize='.58rem';badge.textContent=e.reason;row.appendChild(badge);
   } else {
     const btn=document.createElement('button');btn.className='btn btn-xs btn-w';btn.textContent='Tauschen';
+    
+    // ── NEUE LOGIK: Shiny eintauschen mit Box-Buffer ──
     btn.onclick=()=>{
+      const pi=e.pi;
+      const mySlot=e.mySlot;
+      const myPk=e.myPk;
+      const otherPk=e.otherPk;
+      
+      // Fall A: Standalone Box-Shiny → in Link
       if(e.standalone){
-        // Standalone box shiny: mark swap metadata for restore
         const boxLoc=e.otherSlot.location;
-        const newLinkPk=Object.assign({},e.otherPk,{shinySwapOriginId:e.myPk?.pokeId,shinySwapOriginName:e.myPk?.name,shinySwapBoxPi:e.pi,shinySwapBoxBn:boxLoc.box,shinySwapBoxSlot:boxLoc.slot});
-        const newBoxPk=Object.assign({},e.myPk||{},{shinySwapRestoreTo:{location:e.mySlot.location,slotIndex:e.mySlot.slotIndex,playerIndex:e.mySlot.playerIndex}});
-        setPAt(e.mySlot,newLinkPk);
-        socket.emit('set-box-pokemon',{playerIndex:e.pi,boxNum:boxLoc.box,slotNum:boxLoc.slot,pokemon:newBoxPk});
-      } else {
-        setPAt(e.mySlot,{...e.otherPk});
-        setPAt(e.otherSlot,{...e.myPk});
+        const newLinkPk={
+          ...otherPk,
+          shinySwapOriginId:myPk?.pokeId,
+          shinySwapOriginName:myPk?.name,
+          shinySwapBoxPi:pi,
+          shinySwapBoxBn:boxLoc.box,
+          shinySwapBoxSlot:boxLoc.slot
+        };
+        const newBoxPk={
+          ...(myPk||{}),
+          shinySwapRestoreTo:{
+            location:mySlot.location,
+            slotIndex:mySlot.slotIndex,
+            playerIndex:mySlot.playerIndex
+          }
+        };
+        setPAt(mySlot,newLinkPk);
+        socket.emit('set-box-pokemon',{playerIndex:pi,boxNum:boxLoc.box,slotNum:boxLoc.slot,pokemon:newBoxPk});
+        toast('✨ '+(otherPk.nickname||otherPk.name)+' → Link | Original → Box');
       }
-      toast('✨ '+myName+' ↔ '+otherName);
+      // Fall B: Shiny aus anderem Link → in diesen Link
+      else {
+        const otherSlot=e.otherSlot;
+        const freeBox=findFreeBoxSlot(pi);
+        
+        if(freeBox){
+          const newLinkPk={
+            ...otherPk,
+            shinySwapOriginId:myPk?.pokeId,
+            shinySwapOriginName:myPk?.name,
+            shinySwapBoxPi:pi,
+            shinySwapBoxBn:freeBox.b,
+            shinySwapBoxSlot:freeBox.sl
+          };
+          const newBoxPk={
+            ...(myPk||{}),
+            shinySwapRestoreTo:{
+              location:mySlot.location,
+              slotIndex:mySlot.slotIndex,
+              playerIndex:mySlot.playerIndex
+            }
+          };
+          setPAt(mySlot,newLinkPk);
+          socket.emit('set-box-pokemon',{playerIndex:pi,boxNum:freeBox.b,slotNum:freeBox.sl,pokemon:newBoxPk});
+          // Anderen Link-Slot leeren (kann angepasst werden)
+          setPAt(otherSlot,null);
+          toast('✨ '+pkName(otherPk)+' → dein Link | '+(myPk?pkName(myPk):'leer')+' → Box');
+        } else {
+          // Fallback: Kein Box-Platz → normaler Tausch
+          setPAt(mySlot,{...otherPk});
+          setPAt(otherSlot,{...myPk});
+          toast('✨ '+pkName(otherPk)+' ↔ '+(myPk?pkName(myPk):'leer'));
+        }
+      }
       document.getElementById('ssm').classList.remove('open');
     };
     row.appendChild(btn);
