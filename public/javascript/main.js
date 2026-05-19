@@ -1935,12 +1935,13 @@ function renderBoxSB(){
 }
 function renderBoxMain(){
   const main=document.getElementById('box-main');if(!main)return;
-  const{pi,bn}=bv;
+  const {pi,bn}=bv;
   const cnt=box[pi][bn].filter(s=>s?.pokeId||s?.missed).length;
   main.innerHTML=`<div class="box-hdr">
     <div><div class="box-ttl">Box ${bn+1} · <span style="color:${PC[pi][0]}">${getPN(pi)}</span></div><div class="box-sub">${cnt}/30 Pokémon</div></div>
     <div class="box-actions"><button class="btn btn-g btn-sm" onclick="openPicker('box',${pi},-1,${bn})">+ Hinzufügen</button></div>
   </div><div class="bgrid" id="bgrid"></div>`;
+  
   const grid=document.getElementById('bgrid');
   for(let s=0;s<BS;s++){
     const pk=box[pi][bn][s];
@@ -1948,6 +1949,7 @@ function renderBoxMain(){
     const d=document.createElement('div');
     const isStandaloneShiny=pk?.shiny&&pk?.pokeId&&!lnk&&!brk&&!pk?.missed;
     const isSwappedIn=!!pk?.shinySwapOriginId;
+
     d.className='bs'+(pk?.pokeId||pk?.missed?' bp':'')+(pk?.shiny&&!isStandaloneShiny?' bsh':'')+(pk?.pokeId&&!pk.alive?' bd':'')+(lnk?' bl':'')+(brk?' bbr':'')+(pk?.missedInitiator?' bm-initiator':pk?.missed?' bm':'')+(isStandaloneShiny?' bsh-standalone':'')+(isSwappedIn?' bsh-swapped':'');
     d.innerHTML=`<div class="bsn">${s+1}</div>`;
     if(lnk||brk)d.innerHTML+=`<div class="bsld${brk?' broken':lnk&&pk?.missed?' missed':''}"></div>`;
@@ -1956,10 +1958,65 @@ function renderBoxMain(){
     if(pk?.pokeId)d.innerHTML+=`<img class="bspr" src="${spr(pk.pokeId,pk?.missed?false:pk.shiny)}" loading="lazy" style="${pk?.missed?'opacity:.5;filter:grayscale(.5)':''}">`;
     else if(pk?.missed)d.innerHTML+=`<div class="bsmt" style="font-size:1.4rem;opacity:.5">✗</div>`;
     else d.innerHTML+=`<div class="bsmt">·</div>`;
+    
     const missedBadge=pk?.missedInitiator?'<span style="font-size:.5rem;background:rgba(250,204,21,.25);color:var(--yw);border:1px solid rgba(250,204,21,.6);border-radius:3px;padding:0 3px;display:block;text-align:center;margin-top:1px">⚡</span>':'';
     d.innerHTML+=`<div class="bsnm">${pk?.missed?'nicht gef.':(pk?pkName(pk):'')}${missedBadge}</div>`;
-    if(pk?.pokeId||pk?.missed)d.onclick=()=>openBoxMenu(pi,bn,s);
-    else d.onclick=()=>openPicker('box',pi,s,bn);
+
+    // --- Neuer Linksklick-Handler für zentriertes, animiertes Kontextmenü ---
+    d.addEventListener('click', (ev)=>{
+      ev.stopPropagation();
+      if(!pk) return;
+
+      // Entferne altes Menü
+      const oldMenu=document.getElementById('box-context-menu');
+      if(oldMenu) oldMenu.remove();
+
+      // Menü erstellen
+      const menu=document.createElement('div');
+      menu.id='box-context-menu';
+      menu.style.position='absolute';
+      menu.style.background='var(--sf2)';
+      menu.style.border='1px solid var(--bd)';
+      menu.style.borderRadius='6px';
+      menu.style.padding='6px';
+      menu.style.zIndex='999';
+      menu.style.fontSize='0.8rem';
+      menu.style.cursor='pointer';
+      menu.style.opacity='0';
+      menu.style.transform='scale(0.8)';
+      menu.style.transition='transform 0.15s ease, opacity 0.15s ease';
+      menu.textContent='Slot leeren';
+      menu.onclick=()=>{
+        socket.emit('set-box-pokemon',{playerIndex:pi,boxNum:bn,slotNum:s,pokemon:null});
+        menu.remove();
+      };
+
+      document.body.appendChild(menu);
+
+      // Position zentriert über dem Slot
+      const rect=d.getBoundingClientRect();
+      const menuRect=menu.getBoundingClientRect();
+      let top=rect.top + window.scrollY - menuRect.height - 4; 
+      let left=rect.left + window.scrollX + rect.width/2 - menuRect.width/2;
+
+      if(top < 0) top = rect.bottom + window.scrollY + 4;
+      if(left < 0) left = 4;
+      if(left + menuRect.width > window.innerWidth) left = window.innerWidth - menuRect.width - 4;
+
+      menu.style.top = top+'px';
+      menu.style.left = left+'px';
+
+      // Animation starten
+      requestAnimationFrame(()=>{ 
+        menu.style.opacity='1';
+        menu.style.transform='scale(1)';
+      });
+
+      // Klick außerhalb schließt das Menü
+      const closeMenu=()=>{menu.remove();document.removeEventListener('click',closeMenu);};
+      setTimeout(()=>document.addEventListener('click',closeMenu),0);
+    });
+
     grid.appendChild(d);
   }
 }
