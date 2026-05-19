@@ -1965,66 +1965,92 @@ function renderBoxMain(){
     // --- Linksklick: öffnet weiterhin Picker/Modal ---
     d.addEventListener('click', ()=>{
       if(pk?.pokeId || pk?.missed){
-        openBoxMenuModal(pi,bn,s); // hier sollte dein bestehendes Modal öffnen
+        //openBoxMenuModal(pi,bn,s); // hier sollte dein bestehendes Modal öffnen
       } else {
         openPicker('box',pi,s,bn);
       }
     });
 
     // --- Rechtsklick: öffnet zentriertes Kontextmenü ---
-    d.addEventListener('contextmenu', (ev)=>{
+    d.addEventListener('contextmenu', (ev) => {
       ev.preventDefault();
       ev.stopPropagation();
-      if(!pk) return;
+      if (!pk) return;
 
       // Entferne altes Menü
-      const oldMenu=document.getElementById('box-context-menu');
-      if(oldMenu) oldMenu.remove();
+      const oldMenu = document.getElementById('box-context-menu');
+      if (oldMenu) oldMenu.remove();
 
-      // Menü erstellen
-      const menu=document.createElement('div');
-      menu.id='box-context-menu';
-      menu.style.position='absolute';
-      menu.style.background='var(--sf2)';
-      menu.style.border='1px solid var(--bd)';
-      menu.style.borderRadius='6px';
-      menu.style.padding='6px';
-      menu.style.zIndex='999';
-      menu.style.fontSize='0.8rem';
-      menu.style.cursor='pointer';
-      menu.style.opacity='0';
-      menu.style.transform='scale(0.8)';
-      menu.style.transition='transform 0.15s ease, opacity 0.15s ease';
-      menu.textContent='Slot leeren';
-      menu.onclick=()=>{
-        socket.emit('set-box-pokemon',{playerIndex:pi,boxNum:bn,slotNum:s,pokemon:null});
-        menu.remove();
-      };
+      const menu = document.createElement('div');
+      menu.id = 'box-context-menu';
+      menu.style.position = 'absolute';
+      menu.style.background = 'var(--sf2)';
+      menu.style.border = '1px solid var(--bd)';
+      menu.style.borderRadius = '6px';
+      menu.style.padding = '6px';
+      menu.style.zIndex = '999';
+      menu.style.fontSize = '0.8rem';
+      menu.style.cursor = 'pointer';
+      menu.style.opacity = '0';
+      menu.style.transform = 'scale(0.8)';
+      menu.style.transition = 'transform 0.15s ease, opacity 0.15s ease';
+
+      // Menüoptionen vorbereiten
+      const standalone = isStandaloneShiny(pi, bn, s);
+      const canRestore = !!pk.shinySwapRestoreTo;
+
+      const options = [
+        { label: 'Slot leeren', action: () => { socket.emit('set-box-pokemon', { playerIndex: pi, boxNum: bn, slotNum: s, pokemon: null }); } }
+      ];
+
+      if (standalone) {
+        options.push({ label: '✨ Shiny-Tausch mit Link', action: () => openStandaloneShinySwap(pi, bn, s) });
+      }
+
+      if (canRestore) {
+        options.push({ label: '↩ Tausch rückgängig', action: () => restoreShinySwap(pi, bn, s) });
+      }
+
+      // Menüoptionen rendern
+      options.forEach(opt => {
+        const item = document.createElement('div');
+        item.style.padding = '4px 8px';
+        item.style.borderRadius = '4px';
+        item.style.marginBottom = '4px';
+        item.style.background = 'var(--sf2)';
+        item.style.cursor = 'pointer';
+        item.textContent = opt.label;
+        item.onmouseenter = () => item.style.background = 'var(--sf1)';
+        item.onmouseleave = () => item.style.background = 'var(--sf2)';
+        item.onclick = () => {
+          opt.action();
+          menu.remove();
+        };
+        menu.appendChild(item);
+      });
 
       document.body.appendChild(menu);
 
       // Position zentriert über dem Slot
-      const rect=d.getBoundingClientRect();
-      const menuRect=menu.getBoundingClientRect();
-      let top=rect.top + window.scrollY - menuRect.height - 4; 
-      let left=rect.left + window.scrollX + rect.width/2 - menuRect.width/2;
-
-      if(top < 0) top = rect.bottom + window.scrollY + 4;
-      if(left < 0) left = 4;
-      if(left + menuRect.width > window.innerWidth) left = window.innerWidth - menuRect.width - 4;
-
-      menu.style.top = top+'px';
-      menu.style.left = left+'px';
+      const rect = d.getBoundingClientRect();
+      const menuRect = menu.getBoundingClientRect();
+      let top = rect.top + window.scrollY - menuRect.height - 4;
+      let left = rect.left + window.scrollX + rect.width / 2 - menuRect.width / 2;
+      if (top < 0) top = rect.bottom + window.scrollY + 4;
+      if (left < 0) left = 4;
+      if (left + menuRect.width > window.innerWidth) left = window.innerWidth - menuRect.width - 4;
+      menu.style.top = top + 'px';
+      menu.style.left = left + 'px';
 
       // Animation starten
-      requestAnimationFrame(()=>{ 
-        menu.style.opacity='1';
-        menu.style.transform='scale(1)';
+      requestAnimationFrame(() => {
+        menu.style.opacity = '1';
+        menu.style.transform = 'scale(1)';
       });
 
       // Klick außerhalb schließt das Menü
-      const closeMenu=()=>{menu.remove();document.removeEventListener('click',closeMenu);};
-      setTimeout(()=>document.addEventListener('click',closeMenu),0);
+      const closeMenu = () => { menu.remove(); document.removeEventListener('click', closeMenu); };
+      setTimeout(() => document.addEventListener('click', closeMenu), 0);
     });
 
     grid.appendChild(d);
