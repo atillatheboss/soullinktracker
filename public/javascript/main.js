@@ -1962,8 +1962,18 @@ function renderBoxMain(){
     const missedBadge=pk?.missedInitiator?'<span style="font-size:.5rem;background:rgba(250,204,21,.25);color:var(--yw);border:1px solid rgba(250,204,21,.6);border-radius:3px;padding:0 3px;display:block;text-align:center;margin-top:1px">⚡</span>':'';
     d.innerHTML+=`<div class="bsnm">${pk?.missed?'nicht gef.':(pk?pkName(pk):'')}${missedBadge}</div>`;
 
-    // --- Neuer Linksklick-Handler für zentriertes, animiertes Kontextmenü ---
-    d.addEventListener('click', (ev)=>{
+    // --- Linksklick: öffnet weiterhin Picker/Modal ---
+    d.addEventListener('click', ()=>{
+      if(pk?.pokeId || pk?.missed){
+        openBoxMenuModal(pi,bn,s); // hier sollte dein bestehendes Modal öffnen
+      } else {
+        openPicker('box',pi,s,bn);
+      }
+    });
+
+    // --- Rechtsklick: öffnet zentriertes Kontextmenü ---
+    d.addEventListener('contextmenu', (ev)=>{
+      ev.preventDefault();
       ev.stopPropagation();
       if(!pk) return;
 
