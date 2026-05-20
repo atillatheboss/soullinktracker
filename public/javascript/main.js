@@ -1319,7 +1319,13 @@ function renderTBar(pi,ci){
     const ls=locStr('team',si);
     const lnk=isLinked(pi,ls),brk=isBroken(pi,ls);
     const d=document.createElement('div');
-    d.className='ts'+(lnk?' linked':'')+(brk?' broken':'')+(pk?.missed?' missed':'')+(pk?.pokeId&&!pk.alive?' dead':'');
+    d.className =
+    'ts'
+    + (lnk ? ' linked' : '')
+    + (brk ? ' broken' : '')
+    + (pk?.missed ? ' missed' : '')
+    + (pk?.pokeId && !pk.alive ? ' dead' : '')
+    + (linkColor && pk?.pokeId && pk.alive ? ' colored' : '');
     if(lnk||brk)d.innerHTML+=`<div class="ts-ld${brk?' broken':lnk&&pk?.missed?' missed':''}"></div>`;
     if(pk?.shiny)d.innerHTML+=`<div class="ts-sh">✨</div>`;
     if(pk?.pokeId)d.innerHTML+=`<img class="tss" src="${spr(pk.pokeId,pk.shiny)}" loading="lazy">`;
