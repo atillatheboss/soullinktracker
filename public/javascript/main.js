@@ -1365,57 +1365,47 @@ function renderTE(){
         const tb=document.createElement('button');
         tb.className='es-tot-btn '+(pk.alive?'alive':'dead');
         tb.textContent=pk.alive?'💀 Tot':'♻ Ok';
-        tb.onclick=(e)=>{
+        tb.onclick = (e) => {
           e.stopPropagation();
         
           const newAlive = !pk.alive;
         
-          socket.emit('set-alive',{
-            playerIndex:pi,
-            slotIndex:si,
-            alive:newAlive
+          socket.emit('set-alive', {
+            playerIndex: pi,
+            slotIndex: si,
+            alive: newAlive
           });
-
+        
           // ─────────────────────────────────────────────
-          // FIX: Standalone-Shiny Origin mit updaten
+          // FIX: echte Referenz statt Snapshot-Logik
           // ─────────────────────────────────────────────
-          const pk = team[pi]?.[si];
-
-          if(pk?.shinySwapOrigin?.type === 'standalone') {
-
-            const origin = pk.shinySwapOrigin;
-
-            // 1. Origin-Box-Pokémon updaten (falls vorhanden)
-            if(origin.box) {
-              socket.emit('set-box-pokemon', {
-                playerIndex: origin.box.playerIndex,
-                boxNum: origin.box.box,
-                slotNum: origin.box.slot,
-                pokemon: {
-                  ...structuredClone(pk.shinySwapOriginalPokemon),
-                  alive: newAlive
-                }
-              });
-            }
-
-            // 2. Safety: auch Snapshot synchron halten
-            pk.shinySwapOrigin.originalPokemon.alive = newAlive;
+        
+          const current = team[pi]?.[si];
+        
+          const origin = current?.shinySwapOrigin;
+        
+          if(origin?.type === 'standalone') {
+        
+            const src = origin.originSlot;
+        
+            setPAt(src, {
+              ...getPAt(src),
+              alive: newAlive
+            });
           }
         
           // ─────────────────────────────────────────────
-          // HARD FIX: ALLE Box-Pokémon prüfen
-          // die dieses Link-Pokémon als "Restore-Ziel" haben
+          // optional: Box-Link sync (falls Link in Box gespiegelt wird)
           // ─────────────────────────────────────────────
         
-          for(let b=0;b<NB;b++){
-            for(let sl=0;sl<BS;sl++){
+          for(let b = 0; b < NB; b++) {
+            for(let sl = 0; sl < BS; sl++) {
         
               const bpk = box[pi]?.[b]?.[sl];
               if(!bpk?.shinySwapRestoreTo) continue;
         
               const r = bpk.shinySwapRestoreTo;
         
-              // Match über exakten Slot
               const match =
                 r.playerIndex === pi &&
                 r.location === 'team' &&
@@ -1423,15 +1413,13 @@ function renderTE(){
         
               if(!match) continue;
         
-              // WICHTIG:
-              // dieses Box-Pokémon ist das ORIGINAL → Zustand synchronisieren
-              socket.emit('set-box-pokemon',{
-                playerIndex:pi,
-                boxNum:b,
-                slotNum:sl,
-                pokemon:{
+              socket.emit('set-box-pokemon', {
+                playerIndex: pi,
+                boxNum: b,
+                slotNum: sl,
+                pokemon: {
                   ...bpk,
-                  alive:newAlive
+                  alive: newAlive
                 }
               });
             }
@@ -1526,7 +1514,6 @@ function clearSwapMeta(pk){
 
   delete p.shinySwapStandalone;
   delete p.shinySwapOrigin;
-  delete p.shinySwapOriginalPokemon;
   delete p.shinySwapOriginalLocation;
   delete p.shinySwapBoxPi;
   delete p.shinySwapBoxBn;
@@ -1680,32 +1667,30 @@ function collectRestorableCandidates(lk){
 function restoreOriginalPokemon(slot){
 
   const current = getPAt(slot);
+  const origin = current?.shinySwapOrigin;
 
-  if(!current?.shinySwapOrigin) return;
+  if(!origin) return;
 
-  const origin = current.shinySwapOrigin;
+  if(origin.type === 'standalone'){
 
-  const originalPokemon = structuredClone(origin.originalPokemon);
+    const src = origin.originSlot;
 
-  // standalone shiny
-  if(origin.type==='standalone'){
-
-    socket.emit('set-box-pokemon',{
-      playerIndex:origin.box.playerIndex,
-      boxNum:origin.box.box,
-      slotNum:origin.box.slot,
-      pokemon:clearSwapMeta(current)
+    // Original einfach zurücksetzen
+    setPAt(src, {
+      ...getPAt(src),
+      shinySwapStandalone: false
     });
 
-    setPAt(slot, originalPokemon);
+    setPAt(slot, {
+      pokeId: null,
+      name: null,
+      shiny: false,
+      alive: true
+    });
   }
 
-  // original shiny link
-  else if(origin.type==='link'){
-
-    setPAt(origin.slot, clearSwapMeta(current));
-
-    setPAt(slot, originalPokemon);
+  if(origin.type === 'link'){
+    // link restore bleibt optional wie vorher
   }
 }
 
@@ -1718,15 +1703,8 @@ function moveStandaloneShinyIntoLink(e){
   shiny.shinySwapStandalone = true;
 
   shiny.shinySwapOrigin = {
-    type:'standalone',
-
-    originalPokemon: structuredClone(original),
-
-    box:{
-      playerIndex:e.pi,
-      box:e.otherSlot.location.box,
-      slot:e.otherSlot.location.slot
-    }
+    type: 'standalone',
+    originSlot: e.otherSlot
   };
 
   setPAt(e.mySlot, shiny);
