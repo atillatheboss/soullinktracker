@@ -2000,10 +2000,12 @@ function buildLinkItem(lk){
   // ── Shiny-Tausch Button (immer anzeigen wenn andere Links Shinies haben) ──
   const {available:swapAvail,blocked:swapBlocked}=collectShinySwapCandidates(lk);
   const restAvail=collectRestorableCandidates(lk);
-  const outgoing=collectOutgoingSwapTargets(lk);
-  const outAvail=outgoing.filter(x=>!x.dead);
-  const outBlocked=outgoing.filter(x=>x.dead);
-  if(swapAvail.length||swapBlocked.length||restAvail.length||outAvail.length||outBlocked.length){
+
+  if(
+    swapAvail.length ||
+    swapBlocked.length ||
+    restAvail.length
+  ){
     const swBtn=document.createElement('button');
     swBtn.className='btn btn-w btn-xs';
     swBtn.innerHTML='✨ Shiny-Tausch';
