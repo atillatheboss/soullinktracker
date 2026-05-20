@@ -34,6 +34,13 @@ let links=[];
 let selectedEdition=null;
 
 const colAssign={};
+const STREAM_ORDER_KEY='soullink-stream-order-v1';
+let _streamDragState={containerId:null,colId:null,mode:null,lastBeforeId:null,lastHoverId:null,lastIntent:null};
+const _streamEmptyDragImg=(()=>{
+  const img=new Image();
+  img.src='data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
+  return img;
+})();
 function es(){return{pokeId:null,name:'',nickname:'',shiny:false,alive:true,missed:false};}
 
 // ═══════════════════════════════════════════════
@@ -553,8 +560,278 @@ function joinRoom(){ connectToRun(document.getElementById('ni').value.trim(), _p
 // ═══════════════════════════════════════════════
 // COLUMNS
 // ═══════════════════════════════════════════════
+function getStreamOrderStorageKey(mode){
+  const runKey=myPP||'default';
+  const viewerKey=myPI>=0?`p${myPI}`:'spectator';
+  return `${STREAM_ORDER_KEY}:${runKey}:${viewerKey}:${mode}`;
+}
+
+function getSortableStreamCols(container){
+  if(!container)return[];
+  return [...container.children].filter(el=>
+    el.classList?.contains('scol') &&
+    el.id!=='col-hidden-peer2' &&
+    !el.hasAttribute('data-dnd-disabled')
+  );
+}
+
+function isVisibleStreamCol(el){
+  if(!el)return false;
+  const st=getComputedStyle(el);
+  return st.display!=='none'&&st.visibility!=='hidden';
+}
+
+function saveStreamColOrder(container,mode){
+  if(!container)return;
+  const ids=getSortableStreamCols(container).map(el=>el.id).filter(Boolean);
+  try{localStorage.setItem(getStreamOrderStorageKey(mode),JSON.stringify(ids));}catch(_){}
+}
+
+function applySavedStreamColOrder(container,mode){
+  if(!container)return;
+  let saved=[];
+  try{
+    const raw=localStorage.getItem(getStreamOrderStorageKey(mode));
+    saved=raw?JSON.parse(raw):[];
+  }catch(_){saved=[];}
+  if(!Array.isArray(saved)||!saved.length)return;
+  const cols=getSortableStreamCols(container);
+  const byId=new Map(cols.map(el=>[el.id,el]));
+  saved.forEach(id=>{
+    const col=byId.get(id);
+    if(!col)return;
+    container.appendChild(col);
+    byId.delete(id);
+  });
+  byId.forEach(col=>container.appendChild(col));
+}
+
+function getSortAxis(container,dragging){
+  const visible=getSortableStreamCols(container).filter(el=>el!==dragging&&isVisibleStreamCol(el));
+  if(visible.length<2)return'x';
+  const a=visible[0].getBoundingClientRect();
+  const b=visible[1].getBoundingClientRect();
+  const dx=Math.abs(a.left-b.left);
+  const dy=Math.abs(a.top-b.top);
+  return dx>=dy?'x':'y';
+}
+
+function setDropTarget(container,target){
+  container.querySelectorAll('.drop-target').forEach(el=>el.classList.remove('drop-target'));
+  if(target&&target.parentElement===container&&target.classList.contains('scol')){
+    target.classList.add('drop-target');
+  }
+}
+
+function getDropInsertBefore(container,dragging,clientX,clientY,rawTarget){
+  const hovered=rawTarget?.closest?.('.scol');
+  if(hovered&&hovered!==dragging&&hovered.parentElement===container&&isVisibleStreamCol(hovered)){
+    const axis=getSortAxis(container,dragging);
+    const r=hovered.getBoundingClientRect();
+    const pointer=axis==='y'?clientY:clientX;
+    const center=axis==='y'?(r.top+r.height/2):(r.left+r.width/2);
+    const size=axis==='y'?r.height:r.width;
+    const deadzone=Math.max(10,Math.min(24,size*0.18));
+    let intent=null;
+    if(pointer<center-deadzone) intent='before';
+    else if(pointer>center+deadzone) intent='after';
+    else if(_streamDragState.lastHoverId===hovered.id&&_streamDragState.lastIntent) intent=_streamDragState.lastIntent;
+    if(!intent) return dragging; // keep current order while inside deadzone
+    _streamDragState.lastHoverId=hovered.id;
+    _streamDragState.lastIntent=intent;
+    return intent==='before'?hovered:hovered.nextElementSibling;
+  }
+  _streamDragState.lastHoverId=null;
+  _streamDragState.lastIntent=null;
+  const axis=getSortAxis(container,dragging);
+  const pointer=axis==='y'?clientY:clientX;
+  const candidates=getSortableStreamCols(container).filter(el=>el!==dragging&&isVisibleStreamCol(el));
+  if(!candidates.length)return null;
+  for(const el of candidates){
+    const r=el.getBoundingClientRect();
+    const center=axis==='y'?(r.top+r.height/2):(r.left+r.width/2);
+    if(pointer<center) return el;
+  }
+  return null;
+}
+
+function animateStreamColReflow(cols,firstRects){
+  cols.forEach(el=>{
+    const prev=firstRects.get(el);
+    if(!prev)return;
+    const now=el.getBoundingClientRect();
+    const dx=prev.left-now.left;
+    const dy=prev.top-now.top;
+    if(Math.abs(dx)<1&&Math.abs(dy)<1)return;
+    el.style.transition='none';
+    el.style.transform=`translate(${dx}px,${dy}px)`;
+    requestAnimationFrame(()=>{
+      el.style.transition='transform .24s cubic-bezier(.22,.9,.24,1)';
+      el.style.transform='';
+    });
+  });
+}
+
+function moveDraggedStreamCol(container,dragging,beforeEl){
+  if(!container||!dragging)return;
+  const cols=getSortableStreamCols(container).filter(isVisibleStreamCol);
+  const firstRects=new Map(cols.map(el=>[el,el.getBoundingClientRect()]));
+  if(beforeEl&&beforeEl!==dragging)container.insertBefore(dragging,beforeEl);
+  else if(!beforeEl&&dragging!==container.lastElementChild)container.appendChild(dragging);
+  animateStreamColReflow(cols,firstRects);
+}
+
+function onStreamDragStart(e,container,mode,col){
+  if(col.getAttribute('draggable')!=='true'){e.preventDefault();return;}
+  _streamDragState={containerId:container.id,colId:col.id,mode,lastBeforeId:null,lastHoverId:null,lastIntent:null};
+  container.classList.add('drag-active');
+  col.classList.add('dragging');
+  try{
+    e.dataTransfer.effectAllowed='move';
+    e.dataTransfer.setData('text/plain',col.id);
+    // Hide native drag ghost to avoid browser "snap-back" animation on drop.
+    e.dataTransfer.setDragImage(_streamEmptyDragImg,0,0);
+  }catch(_){}
+}
+
+function onStreamDragOver(e,container){
+  if(_streamDragState.containerId!==container.id)return;
+  e.preventDefault();
+  try{ if(e.dataTransfer) e.dataTransfer.dropEffect='move'; }catch(_){}
+  const dragging=document.getElementById(_streamDragState.colId);
+  if(!dragging||dragging.parentElement!==container)return;
+  const beforeEl=getDropInsertBefore(container,dragging,e.clientX,e.clientY,e.target);
+  const beforeId=beforeEl?.id||'__end__';
+  if(beforeId===_streamDragState.lastBeforeId)return;
+  _streamDragState.lastBeforeId=beforeId;
+  moveDraggedStreamCol(container,dragging,beforeEl);
+  const hoverEl=beforeEl&&beforeEl!==dragging?beforeEl:(dragging.previousElementSibling||dragging.nextElementSibling);
+  setDropTarget(container,hoverEl);
+}
+
+function clearStreamDragState(container,mode){
+  if(!container)return;
+  container.classList.remove('drag-active');
+  container.querySelectorAll('.dragging').forEach(el=>el.classList.remove('dragging'));
+  container.querySelectorAll('.drop-target').forEach(el=>el.classList.remove('drop-target'));
+  saveStreamColOrder(container,mode);
+  _streamDragState={containerId:null,colId:null,mode:null,lastBeforeId:null,lastHoverId:null,lastIntent:null};
+}
+
+function getPeerColsInParent(parent){
+  if(!parent)return[];
+  return [...parent.children].filter(el=>el?.id==='col-1'||el?.id==='col-2');
+}
+
+function syncPlayerStreamColumnParents(){
+  if(myPI<0)return;
+  const sg=document.getElementById('sg');
+  const peersRow=document.getElementById('peers-row');
+  const col0=document.getElementById('col-0');
+  const col1=document.getElementById('col-1');
+  const col2=document.getElementById('col-2');
+  if(!sg||!peersRow||!col0||!col1||!col2)return;
+
+  if(!_minimized){
+    // Normal mode: col-0/1/2 must share the same parent so own stream can be reordered too.
+    const orderedFromSg=getPeerColsInParent(sg);
+    const orderedFromRow=getPeerColsInParent(peersRow);
+    const peerOrder=(orderedFromSg.length?orderedFromSg:orderedFromRow.length?orderedFromRow:[col1,col2]).filter(Boolean);
+    if(col0.parentElement!==sg) sg.insertBefore(col0, peersRow);
+    peerOrder.forEach(col=>sg.insertBefore(col, peersRow));
+    return;
+  }
+
+  // Minimized: keep own column isolated; only peers are arranged relative to each other.
+  if(col0.parentElement!==sg) sg.insertBefore(col0, peersRow);
+  col0.setAttribute('draggable','false');
+  col0.classList.remove('stream-sortable','dragging','drop-target');
+  const peerOrderFromFull=getPeerColsInParent(sg);
+  const peerOrder=(peerOrderFromFull.length?peerOrderFromFull:[col1,col2]).filter(Boolean);
+  peerOrder.forEach(col=>peersRow.appendChild(col));
+}
+
+function initStreamDnDContainer(containerId,mode){
+  const container=document.getElementById(containerId);
+  if(!container)return;
+  container.dataset.streamDndMode=mode;
+  if(mode!=='players-minimized') applySavedStreamColOrder(container,mode);
+  const cols=getSortableStreamCols(container);
+  const sortableCount=cols.filter(isVisibleStreamCol).length;
+  const canSort=sortableCount>1;
+  container.classList.toggle('stream-dnd-enabled',canSort);
+  cols.forEach(col=>{
+    // Defensive cleanup so layout can't keep stale drag transforms on joins/reconnects
+    if(_streamDragState.colId!==col.id){
+      col.style.transform='';
+      col.style.transition='';
+      col.style.pointerEvents='';
+      delete col.dataset.prevPointerEvents;
+      col.classList.remove('dragging','drop-target');
+    }
+    col.setAttribute('draggable',canSort?'true':'false');
+    col.classList.toggle('stream-sortable',canSort);
+    if(!col._streamDndHandlers){
+      col._streamDndHandlers={
+        dragstart:(e)=>{
+          const activeContainer=col.parentElement?.closest?.('[data-stream-dnd-mode]')||col.parentElement;
+          if(!activeContainer)return;
+          onStreamDragStart(e,activeContainer,activeContainer.dataset.streamDndMode||mode,col);
+        },
+        dragover:(e)=>{
+          const activeContainer=col.parentElement?.closest?.('[data-stream-dnd-mode]')||col.parentElement;
+          if(!activeContainer)return;
+          onStreamDragOver(e,activeContainer);
+        },
+        dragenter:(e)=>e.preventDefault(),
+        dragend:()=>{
+          const activeContainer=document.getElementById(_streamDragState.containerId)
+            || col.parentElement?.closest?.('[data-stream-dnd-mode]')
+            || col.parentElement;
+          if(!activeContainer)return;
+          clearStreamDragState(activeContainer,activeContainer.dataset.streamDndMode||mode);
+        },
+      };
+      col.addEventListener('dragstart',col._streamDndHandlers.dragstart);
+      col.addEventListener('dragover',col._streamDndHandlers.dragover);
+      col.addEventListener('dragenter',col._streamDndHandlers.dragenter);
+      col.addEventListener('dragend',col._streamDndHandlers.dragend);
+    }
+  });
+  if(!container._streamDndHandlers){
+    container._streamDndHandlers={
+      dragover:(e)=>onStreamDragOver(e,container),
+      drop:(e)=>{
+        if(_streamDragState.containerId!==container.id)return;
+        e.preventDefault();
+        clearStreamDragState(container,container.dataset.streamDndMode||mode);
+      },
+      dragleave:(e)=>{
+        if(!container.contains(e.relatedTarget))setDropTarget(container,null);
+      },
+    };
+    container.addEventListener('dragover',container._streamDndHandlers.dragover);
+    container.addEventListener('drop',container._streamDndHandlers.drop);
+    container.addEventListener('dragleave',container._streamDndHandlers.dragleave);
+  }
+}
+
+function initStreamDnD(){
+  if(myPI>=0){
+    syncPlayerStreamColumnParents();
+    if(_minimized) initStreamDnDContainer('peers-row','players-minimized');
+    else{
+      initStreamDnDContainer('sg','players-full');
+      // Keep peers-row wrapper as anchor after applying saved full-layout order.
+      syncPlayerStreamColumnParents();
+    }
+  }
+  if(myPI<0) initStreamDnDContainer('ro-sg','spectator');
+}
+
 function updateSgCols(){
   const sg=document.getElementById('sg');if(!sg)return;
+  if(myPI>=0) syncPlayerStreamColumnParents();
 
   // Count active players (non-spectators)
   const activePeerCount=[...peers.values()].filter(p=>p.playerIndex>=0).length;
@@ -576,6 +853,7 @@ function updateSgCols(){
     // Normal: set grid columns to match player count
     sg.style.gridTemplateColumns=`repeat(${cols},1fr)`;
   }
+  initStreamDnD();
 }
 
 function assignCols(){
@@ -620,6 +898,7 @@ function assignCols(){
   }
   if(typeof renderBadgeBars==='function') renderBadgeBars();
   updateSgCols();
+  initStreamDnD();
 }
 
 function buildReadonlyGrid(){
@@ -637,7 +916,7 @@ function buildReadonlyGrid(){
   }
   // Don't wipe if videos already exist — just update labels
   const existingVideos=rsg.querySelectorAll('video[src-bound]');
-  if(existingVideos.length>0) return; // grid already has active streams, don't destroy
+  if(existingVideos.length>0){initStreamDnD();return;} // grid already has active streams, don't destroy
   rsg.innerHTML='';
   const sorted=[...peers.values()].filter(p=>p.playerIndex>=0).sort((a,b)=>a.playerIndex-b.playerIndex);
 
@@ -703,6 +982,7 @@ function buildReadonlyGrid(){
           roSlot.style.cssText='background:var(--sf);border:1px solid var(--bd);border-radius:12px;overflow:hidden;aspect-ratio:16/9;position:relative';
           roSlot.innerHTML=`<div class="sse"><div style="font-size:1.8rem;opacity:.16">👤</div><span style="font-size:.7rem;font-family:Space Mono,monospace;color:var(--txd)">${p.name} (kein Stream)</span></div>`;
           col.appendChild(lbl);col.appendChild(roSlot);rsg.appendChild(col);
+          initStreamDnD();
         } else {
           buildReadonlyGrid(); roSlot=document.getElementById('ro-slot-'+p.playerIndex);
         }
@@ -738,6 +1018,7 @@ function buildReadonlyGrid(){
       }
     });
   },300);
+  initStreamDnD();
 }
 
 // ═══════════════════════════════════════════════
@@ -3616,7 +3897,7 @@ async function _openOnePopout(t){
 function toggleMinimize(){
   _minimized=!_minimized;
   const sg=document.getElementById('sg');
-  const peersRow=document.getElementById('peers-row');
+  syncPlayerStreamColumnParents();
   sg.classList.toggle('minimized',_minimized);
   document.getElementById('minbtn').textContent=_minimized?'⊞ maximieren':'⊟ minimieren';
   updateSgCols();
