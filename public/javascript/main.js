@@ -1624,11 +1624,25 @@ function openShinySwapModal(linkId){
           });
         
           // Restore original pokemon into Link1
-          setPAt(shinySlot,originalPk);
-        
-          // Move shiny into Link2
+          const origin = shinyPk.shinySwapOriginalLocation;
+
+          if(origin){
+            setPAt(origin, originalPk);
+          }
+          const movedShiny = structuredClone(shinyPk);
+
+          delete movedShiny.shinySwapBoxPi;
+          delete movedShiny.shinySwapBoxBn;
+          delete movedShiny.shinySwapBoxSlot;
+
           setPAt(targetSlot,{
-            ...shinyPk
+            ...movedShiny,
+          
+            shinySwapOriginalPokemon:
+              structuredClone(shinyPk.shinySwapOriginalPokemon),
+          
+            shinySwapOriginalLocation:
+              structuredClone(shinyPk.shinySwapOriginalLocation)
           });
       
         } else {
@@ -1744,11 +1758,18 @@ function buildSwapRow(e,isBlocked){
       if(e.standalone){
         // Standalone box shiny: mark swap metadata for restore
         const boxLoc=e.otherSlot.location;
-        const newLinkPk=Object.assign({},e.otherPk,{
+        const newLinkPk = Object.assign({}, e.otherPk, {
           shinySwapOriginalPokemon: structuredClone(e.myPk),
-          shinySwapBoxPi:e.pi,
-          shinySwapBoxBn:boxLoc.box,
-          shinySwapBoxSlot:boxLoc.slot
+        
+          shinySwapOriginalLocation: {
+            playerIndex: e.mySlot.playerIndex,
+            location: structuredClone(e.mySlot.location),
+            slotIndex: e.mySlot.slotIndex
+          },
+        
+          shinySwapBoxPi: e.pi,
+          shinySwapBoxBn: boxLoc.box,
+          shinySwapBoxSlot: boxLoc.slot
         });
         const newBoxPk=Object.assign({},e.myPk||{},{shinySwapRestoreTo:{location:e.mySlot.location,slotIndex:e.mySlot.slotIndex,playerIndex:e.mySlot.playerIndex}});
         setPAt(e.mySlot,newLinkPk);
