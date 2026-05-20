@@ -32,7 +32,6 @@ let box=Array.from({length:3},()=>Array.from({length:NB},()=>Array(BS).fill(null
 let routes=[{},{},{}];
 let links=[];
 let selectedEdition=null;
-let columnOrder = [0,1,2];
 
 const colAssign={};
 function es(){return{pokeId:null,name:'',nickname:'',shiny:false,alive:true,missed:false};}
@@ -621,68 +620,6 @@ function assignCols(){
   }
   if(typeof renderBadgeBars==='function') renderBadgeBars();
   updateSgCols();
-  enableColumnDnD();
-}
-
-// ─────────────────────────────
-// DRAG & DROP
-// ─────────────────────────────
-function enableColumnDnD(){
-  const sg = document.getElementById('sg');
-  if(!sg) return;
-
-  const cols = [...sg.querySelectorAll('.scol')];
-
-  cols.forEach(col=>{
-    col.draggable = true;
-
-    col.addEventListener('dragstart', e=>{
-      col.classList.add('dragging');
-      e.dataTransfer.setData('text/plain', col.id);
-    });
-
-    col.addEventListener('dragend', ()=>{
-      col.classList.remove('dragging');
-    });
-
-    col.addEventListener('dragover', e=>{
-      e.preventDefault();
-    });
-
-    col.addEventListener('drop', e=>{
-      e.preventDefault();
-
-      const draggedId = e.dataTransfer.getData('text/plain');
-      const draggedEl = document.getElementById(draggedId);
-
-      if(!draggedEl || draggedEl===col) return;
-
-      const all = [...sg.children];
-      const draggedIndex = all.indexOf(draggedEl);
-      const targetIndex = all.indexOf(col);
-
-      if(draggedIndex < targetIndex){
-        sg.insertBefore(draggedEl, col.nextSibling);
-      }else{
-        sg.insertBefore(draggedEl, col);
-      }
-
-      updateColumnOrder();
-    });
-  });
-}
-
-function updateColumnOrder(){
-  const sg = document.getElementById('sg');
-  if(!sg) return;
-
-  const cols = [...sg.querySelectorAll('.scol')];
-
-  columnOrder = cols.map(col=>{
-    return parseInt(col.id.split('-')[1]);
-  });
-
-  console.log('Neue Reihenfolge:', columnOrder);
 }
 
 function buildReadonlyGrid(){
