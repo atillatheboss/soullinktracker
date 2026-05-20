@@ -1338,6 +1338,16 @@ function renderSL(){renderTE();renderLSG();renderLL();}
 function getAPIs(){const s=new Set();if(myPI>=0)s.add(myPI);peers.forEach(p=>{if(p.playerIndex>=0)s.add(p.playerIndex);});return[...s].sort();}
 function getPN(pi){if(pi===myPI)return myName;for(const[,p]of peers)if(p.playerIndex===pi)return p.name;return'Spieler '+(pi+1);}
 
+function getLinkForSlot(pi, si) {
+  return links.find(lk =>
+    lk.slots.some(s =>
+      s.playerIndex === pi &&
+      s.location === 'team' &&
+      s.slotIndex === si
+    )
+  );
+}
+
 function renderTE(){
   const ed=document.getElementById('te');ed.innerHTML='<div class="sec-t">Team-Verwaltung</div>';
   // Always show all 3 player slots, not just connected ones
@@ -2176,15 +2186,6 @@ function renderBoxSB(){
     }
     sb.appendChild(sec);
   });
-}
-function getLinkForSlot(pi, loc){
-  return links.find(lk =>
-    lk.slots.some(s =>
-      s.playerIndex === pi &&
-      s.location === 'team' &&
-      s.slotIndex === loc.slotIndex
-    )
-  );
 }
 
 function renderBoxMain(){
