@@ -1466,24 +1466,34 @@ function linkCategory(lk){
   return 'boxed';
 }
 
-function getLinkColor(lk){
-  const seed = lk.id + ':' + (lk.routeId || 'x');
+const linkColorMap = new Map();
 
-  let hash = 0;
-  for (let i = 0; i < seed.length; i++) {
-    hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+const baseColors = [
+  '#ff3b3b', // rot
+  '#3b82ff', // blau
+  '#ffd43b', // gelb
+  '#22c55e', // grün
+  '#a855f7', // lila
+  '#ff8a1f'  // orange
+];
+
+let colorIndex = 0;
+
+function getLinkColor(lk){
+  const key = lk.id + ':' + (lk.routeId || 'x');
+
+  // schon vergeben → gleiche Farbe behalten
+  if (linkColorMap.has(key)) {
+    return linkColorMap.get(key);
   }
 
-  const colors = [
-    '#ff3b3b', // rot
-    '#3b82ff', // blau
-    '#ffd43b', // gelb
-    '#22c55e', // grün
-    '#a855f7', // lila
-    '#ff8a1f'  // orange
-  ];
+  // neue Farbe vergeben
+  const color = baseColors[colorIndex % baseColors.length];
 
-  return colors[hash % colors.length];
+  linkColorMap.set(key, color);
+  colorIndex++;
+
+  return color;
 }
 
 // ── Shiny-Tausch Modal ───────────────────────────────────────────────────────
