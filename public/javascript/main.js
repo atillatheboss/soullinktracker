@@ -1436,6 +1436,7 @@ function renderTE(){
       }
       grid.appendChild(el);
     }
+    colorIndex = 0;
     blk.appendChild(grid);
     ed.appendChild(blk);
   });
