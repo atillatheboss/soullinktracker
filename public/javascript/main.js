@@ -1321,6 +1321,13 @@ function renderTBar(pi,ci){
     const d=document.createElement('div');
     const linkObj = getLinkForSlot(pi, si);
     const linkColor = linkObj ? getLinkColor(linkObj) : null;
+    if (linkColor && pk?.pokeId && pk.alive) {
+      d.style.setProperty('--link-color', linkColor);
+    
+      d.style.background = `color-mix(in srgb, ${linkColor} 18%, transparent)`;
+    
+      d.style.boxShadow = `0 0 8px ${linkColor}55`;
+    }
     d.className =
     'ts'
     + (lnk ? ' linked' : '')
