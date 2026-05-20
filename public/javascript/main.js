@@ -1382,7 +1382,7 @@ function renderTE(){
         el.style.setProperty('--link-color', linkColor);
       
         // LIGHT BACKGROUND (wichtig für dein Wunsch)
-        el.style.background = `color-mix(in srgb, ${linkColor} 18%, transparent)`;
+        el.style.background = `color-mix(in srgb, ${linkColor} 8%, transparent)`;
       
         el.style.boxShadow = `0 0 10px ${linkColor}55`;
       }
