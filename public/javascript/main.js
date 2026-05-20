@@ -772,7 +772,8 @@ function syncPlayerStreamColumnParents(){
   col0.setAttribute('draggable','false');
   col0.classList.remove('stream-sortable','dragging','drop-target');
   const peerOrderFromFull=getPeerColsInParent(sg);
-  const peerOrder=(peerOrderFromFull.length?peerOrderFromFull:[col1,col2]).filter(Boolean);
+  const peerOrderFromRow=getPeerColsInParent(peersRow);
+  const peerOrder=(peerOrderFromFull.length?peerOrderFromFull:peerOrderFromRow.length?peerOrderFromRow:[col1,col2]).filter(Boolean);
   peerOrder.forEach(col=>peersRow.appendChild(col));
 }
 
