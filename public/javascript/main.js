@@ -36,6 +36,8 @@ let selectedEdition=null;
 const colAssign={};
 function es(){return{pokeId:null,name:'',nickname:'',shiny:false,alive:true,missed:false};}
 
+let draggedLinkId = null;
+
 // ═══════════════════════════════════════════════
 // PAGES
 // ═══════════════════════════════════════════════
@@ -1376,6 +1378,22 @@ function renderTE(){
       const pk=team[pi]?.[si];
       const ls=locStr('team',si);const lnk=isLinked(pi,ls),brk=isBroken(pi,ls);
       const el=document.createElement('div');
+      el.dataset.playerIndex = pi;
+      el.dataset.slotIndex = si;
+      el.addEventListener('dragover', e=>{
+        e.preventDefault();
+        el.classList.add('drag-over');
+      });
+      el.addEventListener('dragleave', ()=>{
+        el.classList.remove('drag-over');
+      });
+      el.addEventListener('drop', e=>{
+        e.preventDefault();
+        el.classList.remove('drag-over');
+        if(!draggedLinkId) return;
+        moveLinkToTeamSlot(draggedLinkId, pi, si);
+        draggedLinkId = null;
+      });
       const linkObj = getLinkForSlot(pi, si);
       const linkColor = linkObj ? getSlotColor(si) : null;
       if (linkColor && pk?.pokeId && pk.alive) {
@@ -1978,12 +1996,71 @@ function setPAt(s,pk){
   }
 }
 
+function moveLinkToTeamSlot(linkId, targetPi, targetSi){
+  const lk = links.find(l=>l.id===linkId);
+  if(!lk) return;
+  // find member belonging to target player
+  const ownSlot = lk.slots.find(s=>s.playerIndex===targetPi);
+  if(!ownSlot) {
+    toast('Dieser Link gehört nicht zu diesem Spieler.',1);
+    return;
+  }
+  // already there
+  if(
+    ownSlot.location === 'team' &&
+    ownSlot.slotIndex === targetSi
+  ) return;
+  const targetPokemon = team[targetPi]?.[targetSi];
+  // if target occupied -> move old occupant back
+  if(targetPokemon){
+    const displacedLink = getLinkForSlot(targetPi, targetSi);
+    // linked pokemon
+    if(displacedLink){
+      displacedLink.slots.forEach(s=>{
+        const pk = getPAt(s);
+        // move into old locations of dragged link
+        const old = lk.slots.find(x=>x.playerIndex===s.playerIndex);
+        if(!old) return;
+        setPAt(old, pk);
+        // update slot metadata
+        s.location = old.location;
+        if(old.slotIndex !== undefined)
+          s.slotIndex = old.slotIndex;
+      });
+    }
+    // standalone pokemon
+    else {
+      setPAt(ownSlot, structuredClone(targetPokemon));
+    }
+  }
+  // move dragged link into new team positions
+  lk.slots.forEach(s=>{
+    const pk = getPAt(s);
+    // clear old
+    setPAt(s, null);
+    s.location = 'team';
+    s.slotIndex = targetSi;
+    setPAt(s, pk);
+  });
+  renderSL();
+  toast('🔀 Link verschoben');
+}
+
 // ── Link-Karte bauen ─────────────────────────────────────────────────────────
 function buildLinkItem(lk){
   const isRoute=!!lk.routeId;
   const hasShiny=lk.slots.some(s=>getPAt(s)?.shiny);
   const cat=linkCategory(lk);
   const item=document.createElement('div');
+  item.draggable = true;
+  item.addEventListener('dragstart', ()=>{
+    draggedLinkId = lk.id;
+    item.classList.add('dragging');
+  });
+  item.addEventListener('dragend', ()=>{
+    draggedLinkId = null;
+    item.classList.remove('dragging');
+  });
   item.className='li'+(lk.broken?' broken':'')+(isRoute?' route-link':'');
 
   // ── Sprites ──

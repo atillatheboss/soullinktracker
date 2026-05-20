@@ -182,6 +182,15 @@
       outline: 2px solid var(--link-color);
       transition: all 0.15s ease;
     }
+    .es.drag-over{
+      outline:2px dashed #ffd43b;
+      outline-offset:2px;
+      transform:scale(1.04);
+    }
+    .li.dragging{
+      opacity:.45;
+      transform:scale(.98);
+    }
 
     /* ── BOX ── */
     .box-layout{display:grid;grid-template-columns:155px 1fr;flex:1;min-height:0}
