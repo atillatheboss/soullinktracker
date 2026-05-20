@@ -1319,6 +1319,8 @@ function renderTBar(pi,ci){
     const ls=locStr('team',si);
     const lnk=isLinked(pi,ls),brk=isBroken(pi,ls);
     const d=document.createElement('div');
+    const linkObj = getLinkForSlot(pi, si);
+    const linkColor = linkObj ? getLinkColor(linkObj) : null;
     d.className =
     'ts'
     + (lnk ? ' linked' : '')
