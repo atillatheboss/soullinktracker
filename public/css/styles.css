@@ -146,11 +146,11 @@ select.inp{cursor:pointer}
 /* When minimized: own col-0 shows only teambar + counter inline, peers fill the main grid */
 #sg.minimized{display:flex;flex-direction:column;gap:11px}
 /* Top strip: own teambar full-width + counter right */
-#sg.minimized #col-0{display:flex;flex-direction:row;align-items:stretch;gap:10px;padding:0 18px}
+#sg.minimized #col-0{display:flex;flex-direction:row;align-items:stretch;gap:11px;padding:0 18px;width:100%;box-sizing:border-box}
 #sg #col-0 .ss{max-height:900px;opacity:1;transform:translateY(0);transition:max-height .28s ease,opacity .22s ease,transform .22s ease,border-color .22s ease}
 #sg.minimized #col-0 .ss{max-height:0;opacity:0;transform:translateY(-8px);border-width:0;pointer-events:none;width:0;min-width:0;flex:0 0 0;padding:0;margin:0}
 #sg.minimized #col-0 .scol-lbl{display:none}
-#sg.minimized #col-0 .tbar{flex:1;border-radius:12px;border:1px solid var(--bd)}
+#sg.minimized #col-0 .tbar{flex:1 1 auto;min-width:0;border-radius:12px;border:1px solid var(--bd)}
 #sg.minimized #col-0 .dcbar{width:190px;flex-shrink:0;border-radius:12px;border:1px solid var(--bd);border-top:1px solid var(--bd)}
 /* Peer grid below: 2 equal cols */
 #sg.minimized .peers-row{display:grid;grid-template-columns:1fr 1fr;gap:11px;padding:0 18px;animation:stream-mini-in .24s ease}

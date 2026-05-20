@@ -587,6 +587,12 @@ function saveStreamColOrder(container,mode){
   try{localStorage.setItem(getStreamOrderStorageKey(mode),JSON.stringify(ids));}catch(_){}
 }
 
+function getStreamOrderAnchor(container){
+  if(!container) return null;
+  if(container.id==='sg') return document.getElementById('peers-row');
+  return null;
+}
+
 function applySavedStreamColOrder(container,mode){
   if(!container)return;
   let saved=[];
@@ -596,14 +602,19 @@ function applySavedStreamColOrder(container,mode){
   }catch(_){saved=[];}
   if(!Array.isArray(saved)||!saved.length)return;
   const cols=getSortableStreamCols(container);
+  const anchor=getStreamOrderAnchor(container);
   const byId=new Map(cols.map(el=>[el.id,el]));
   saved.forEach(id=>{
     const col=byId.get(id);
     if(!col)return;
-    container.appendChild(col);
+    if(anchor&&anchor.parentElement===container) container.insertBefore(col,anchor);
+    else container.appendChild(col);
     byId.delete(id);
   });
-  byId.forEach(col=>container.appendChild(col));
+  byId.forEach(col=>{
+    if(anchor&&anchor.parentElement===container) container.insertBefore(col,anchor);
+    else container.appendChild(col);
+  });
 }
 
 function getSortAxis(container,dragging){
@@ -675,9 +686,13 @@ function animateStreamColReflow(cols,firstRects){
 function moveDraggedStreamCol(container,dragging,beforeEl){
   if(!container||!dragging)return;
   const cols=getSortableStreamCols(container).filter(isVisibleStreamCol);
+  const anchor=getStreamOrderAnchor(container);
   const firstRects=new Map(cols.map(el=>[el,el.getBoundingClientRect()]));
   if(beforeEl&&beforeEl!==dragging)container.insertBefore(dragging,beforeEl);
-  else if(!beforeEl&&dragging!==container.lastElementChild)container.appendChild(dragging);
+  else if(!beforeEl){
+    if(anchor&&anchor.parentElement===container) container.insertBefore(dragging,anchor);
+    else if(dragging!==container.lastElementChild) container.appendChild(dragging);
+  }
   animateStreamColReflow(cols,firstRects);
 }
 
@@ -723,6 +738,11 @@ function getPeerColsInParent(parent){
   return [...parent.children].filter(el=>el?.id==='col-1'||el?.id==='col-2');
 }
 
+function getFullColsInParent(parent){
+  if(!parent)return[];
+  return [...parent.children].filter(el=>el?.id==='col-0'||el?.id==='col-1'||el?.id==='col-2');
+}
+
 function syncPlayerStreamColumnParents(){
   if(myPI<0)return;
   const sg=document.getElementById('sg');
@@ -733,17 +753,22 @@ function syncPlayerStreamColumnParents(){
   if(!sg||!peersRow||!col0||!col1||!col2)return;
 
   if(!_minimized){
-    // Normal mode: col-0/1/2 must share the same parent so own stream can be reordered too.
-    const orderedFromSg=getPeerColsInParent(sg);
-    const orderedFromRow=getPeerColsInParent(peersRow);
-    const peerOrder=(orderedFromSg.length?orderedFromSg:orderedFromRow.length?orderedFromRow:[col1,col2]).filter(Boolean);
-    if(col0.parentElement!==sg) sg.insertBefore(col0, peersRow);
-    peerOrder.forEach(col=>sg.insertBefore(col, peersRow));
+    // Normal mode: bring col-0/1/2 back to sg but preserve existing visual order.
+    const orderedFromSg=getFullColsInParent(sg);
+    const orderedFromRow=getFullColsInParent(peersRow);
+    const merged=[...orderedFromSg,...orderedFromRow,col0,col1,col2];
+    const seen=new Set();
+    const fullOrder=merged.filter(col=>{
+      if(!col||seen.has(col.id)) return false;
+      seen.add(col.id);
+      return true;
+    });
+    fullOrder.forEach(col=>sg.insertBefore(col, peersRow));
     return;
   }
 
   // Minimized: keep own column isolated; only peers are arranged relative to each other.
-  if(col0.parentElement!==sg) sg.insertBefore(col0, peersRow);
+  sg.insertBefore(col0, peersRow);
   col0.setAttribute('draggable','false');
   col0.classList.remove('stream-sortable','dragging','drop-target');
   const peerOrderFromFull=getPeerColsInParent(sg);
