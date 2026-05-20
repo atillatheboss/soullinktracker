@@ -5369,6 +5369,7 @@ function renderTypeTable() {
 
   const activeTypes = getActiveTypes();
   const genTC = buildGenTC(getEditionGen());
+  const edition = getEditionGen();
 
   // Header row
   const thead = table.createTHead();
