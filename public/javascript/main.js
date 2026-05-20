@@ -1320,11 +1320,11 @@ function renderTBar(pi,ci){
     const lnk=isLinked(pi,ls),brk=isBroken(pi,ls);
     const d=document.createElement('div');
     const linkObj = getLinkForSlot(pi, si);
-    const linkColor = linkObj ? getLinkColor(linkObj) : null;
+    const linkColor = linkObj ? getSlotColor(si) : null;
     if (linkColor && pk?.pokeId && pk.alive) {
       d.style.setProperty('--link-color', linkColor);
     
-      d.style.background = `color-mix(in srgb, ${linkColor} 18%, transparent)`;
+      d.style.background = `color-mix(in srgb, ${linkColor} 8%, transparent)`;
     
       d.style.boxShadow = `0 0 8px ${linkColor}55`;
     }
@@ -1377,7 +1377,7 @@ function renderTE(){
       const ls=locStr('team',si);const lnk=isLinked(pi,ls),brk=isBroken(pi,ls);
       const el=document.createElement('div');
       const linkObj = getLinkForSlot(pi, si);
-      const linkColor = linkObj ? getLinkColor(linkObj) : null;
+      const linkColor = linkObj ? getSlotColor(si) : null;
       if (linkColor && pk?.pokeId && pk.alive) {
         el.style.setProperty('--link-color', linkColor);
       
@@ -1467,34 +1467,17 @@ function linkCategory(lk){
   return 'boxed';
 }
 
-const linkColorMap = new Map();
+function getSlotColor(slotIndex){
+  const colors = [
+    '#ff3b3b', // Slot 1 → rot
+    '#3b82ff', // Slot 2 → blau
+    '#ffd43b', // Slot 3 → gelb
+    '#22c55e', // Slot 4 → grün
+    '#a855f7', // Slot 5 → lila
+    '#ff8a1f'  // Slot 6 → orange
+  ];
 
-const baseColors = [
-  '#ff3b3b', // rot
-  '#3b82ff', // blau
-  '#ffd43b', // gelb
-  '#22c55e', // grün
-  '#a855f7', // lila
-  '#ff8a1f'  // orange
-];
-
-let colorIndex = 0;
-
-function getLinkColor(lk){
-  const key = lk.id + ':' + (lk.routeId || 'x');
-
-  // schon vergeben → gleiche Farbe behalten
-  if (linkColorMap.has(key)) {
-    return linkColorMap.get(key);
-  }
-
-  // neue Farbe vergeben
-  const color = baseColors[colorIndex % baseColors.length];
-
-  linkColorMap.set(key, color);
-  colorIndex++;
-
-  return color;
+  return colors[slotIndex % colors.length];
 }
 
 // ── Shiny-Tausch Modal ───────────────────────────────────────────────────────
