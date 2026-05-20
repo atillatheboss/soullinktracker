@@ -1363,6 +1363,14 @@ function renderTE(){
       const el=document.createElement('div');
       const linkObj = getLinkForSlot(pi, si);
       const linkColor = linkObj ? getLinkColor(linkObj) : null;
+      if (linkColor && pk?.pokeId && pk.alive) {
+        el.style.setProperty('--link-color', linkColor);
+      
+        // LIGHT BACKGROUND (wichtig für dein Wunsch)
+        el.style.background = `color-mix(in srgb, ${linkColor} 18%, transparent)`;
+      
+        el.style.boxShadow = `0 0 10px ${linkColor}55`;
+      }
       el.className =
         'es'
         + (pk?.pokeId || pk?.missed ? ' ep' : '')
@@ -1444,19 +1452,20 @@ function linkCategory(lk){
 }
 
 function getLinkColor(lk){
-  // Only color when at least one member is in TEAM
-  // Otherwise fallback to purple (default behavior)
-  if (!lk.slots.some(s => s.location === 'team')) {
-    return 'purple';
+  const seed = lk.id + ':' + (lk.routeId || 'x');
+
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) {
+    hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
   }
 
-  // stable per linkId (or fallback)
   const colors = [
     '#ff4d4d', '#4da6ff', '#4dff88', '#ffcc4d',
-    '#b84dff', '#ff4df0', '#4dfff2', '#ff7a4d'
+    '#b84dff', '#ff4df0', '#4dfff2', '#ff7a4d',
+    '#ff9f1c', '#2ec4b6'
   ];
 
-  return colors[(lk.id || 0) % colors.length];
+  return colors[hash % colors.length];
 }
 
 // ── Shiny-Tausch Modal ───────────────────────────────────────────────────────
