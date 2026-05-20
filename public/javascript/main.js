@@ -2211,8 +2211,6 @@ function renderBoxMain(){
   for(let s=0;s<BS;s++){
     const pk=box[pi][bn][s];
     const ls=`box:${bn}:${s}`;const lnk=isLinked(pi,ls),brk=isBroken(pi,ls);
-    const linkObj = getLinkForSlot(pi, si); // you likely already have something similar
-    const linkColor = linkObj ? getLinkColor(linkObj) : null; 
     const d=document.createElement('div');
     const standaloneShiny=pk?.shiny&&pk?.pokeId&&!lnk&&!brk&&!pk?.missed;
     const isSwappedIn=!!pk?.shinySwapOriginId;
