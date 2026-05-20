@@ -1586,8 +1586,56 @@ function openShinySwapModal(linkId){
         +'<div style="font-size:.6rem;color:var(--txd);font-family:Space Mono,monospace">Link #'+targetLinkId+'</div></div>';
       const btn=document.createElement('button');btn.className='btn btn-xs btn-w';btn.textContent='Tauschen';
       btn.onclick=function(){
-        setPAt(shinySlot,Object.assign({},targetPk));
-        setPAt(targetSlot,Object.assign({},shinyPk));
+
+        // ─────────────────────────────────────────────
+        // SPECIAL CASE:
+        // shiny originally came from standalone box
+        // ─────────────────────────────────────────────
+        if(shinyPk.shinySwapBoxPi !== undefined){
+      
+          const boxPi   = shinyPk.shinySwapBoxPi;
+          const boxBn   = shinyPk.shinySwapBoxBn;
+          const boxSlot = shinyPk.shinySwapBoxSlot;
+      
+          // Pokémon currently in Link2 goes into the box
+          const boxedTarget = {
+            ...targetPk,
+            shinySwapRestoreTo:{
+              location: shinySlot.location,
+              slotIndex: shinySlot.slotIndex,
+              playerIndex: shinySlot.playerIndex
+            }
+          };
+      
+          socket.emit('set-box-pokemon',{
+            playerIndex: boxPi,
+            boxNum: boxBn,
+            slotNum: boxSlot,
+            pokemon: boxedTarget
+          });
+      
+          // restore original Pokémon back into Link1
+          const originalPk = {
+            pokeId: shinyPk.shinySwapOriginId,
+            name: shinyPk.shinySwapOriginName,
+            alive: true,
+            shiny: false
+          };
+      
+          setPAt(shinySlot, originalPk);
+      
+          // move shiny into Link2
+          setPAt(targetSlot, {
+            ...shinyPk
+          });
+      
+        } else {
+      
+          // normal swap
+          setPAt(shinySlot,Object.assign({},targetPk));
+          setPAt(targetSlot,Object.assign({},shinyPk));
+        }
+      
         toast('✨ '+sn+' ↔ '+tn);
         document.getElementById('ssm').classList.remove('open');
       };
