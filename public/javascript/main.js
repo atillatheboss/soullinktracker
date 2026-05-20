@@ -1420,376 +1420,475 @@ function linkCategory(lk){
 }
 
 // ── Shiny-Tausch Modal ───────────────────────────────────────────────────────
-// Sammelt ALLE Shiny-Pokémon aus anderen Links für die Spieler dieses Links.
-// Gibt zurück: { available, blocked, outgoing }
-// outgoing = this link has a shiny → other links/box as swap targets
+
+// Regeln:
+// 1. Ein standalone shiny darf in JEDEN Link eingesetzt werden.
+// 2. Der ursprüngliche Link-Pokemon-Slot verlässt NIE dauerhaft den Link.
+//    Das Original wird nur "geparkt".
+// 3. Wird das Shiny weitergetauscht, wandert IMMER nur das Shiny.
+// 4. Reset bringt:
+//    - standalone shiny -> zurück in ursprüngliche Box
+//    - link shiny -> zurück in ursprünglichen Link
+// 5. War das shiny ursprünglich Teil eines Links,
+//    gelten normale 1:1 Link-Tausche.
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+function isStandaloneShiny(pk){
+  return !!pk?.shinySwapStandalone;
+}
+
+function isLinkOwnedShiny(pk){
+  return pk?.shiny && !pk?.shinySwapStandalone;
+}
+
+function makeRestoreData(slot, pk){
+  return {
+    slot: structuredClone(slot),
+    pokemon: structuredClone(pk)
+  };
+}
+
+function clearSwapMeta(pk){
+  if(!pk) return pk;
+  const p = structuredClone(pk);
+
+  delete p.shinySwapStandalone;
+  delete p.shinySwapOrigin;
+  delete p.shinySwapOriginalPokemon;
+  delete p.shinySwapOriginalLocation;
+  delete p.shinySwapBoxPi;
+  delete p.shinySwapBoxBn;
+  delete p.shinySwapBoxSlot;
+  delete p.shinySwapRestoreTo;
+
+  return p;
+}
+
 function collectShinySwapCandidates(lk){
-  const available=[], blocked=[];
+  const available=[];
+  const blocked=[];
+
   const myPis = new Set(lk.slots.map(s=>s.playerIndex));
 
-  // Direction A: shinies IN other links → swap into this link
+  // ── standalone box shinies ────────────────────────────────────────────────
+  myPis.forEach(pi=>{
+    for(let b=0;b<NB;b++){
+      for(let sl=0;sl<BS;sl++){
+
+        const pk = box[pi]?.[b]?.[sl];
+
+        if(!pk?.pokeId || !pk?.shiny || pk?.missed) continue;
+
+        const loc='box:'+b+':'+sl;
+
+        if(isLinked(pi,loc) || isBroken(pi,loc)) continue;
+
+        const mySlot = lk.slots.find(s=>s.playerIndex===pi);
+        if(!mySlot) continue;
+
+        const myPk = getPAt(mySlot);
+
+        const dead = lk.broken || !pk.alive || (myPk && !myPk.alive);
+
+        const entry={
+          standalone:true,
+          pi,
+          mySlot,
+          myPk,
+          otherPk:pk,
+          otherSlot:{
+            playerIndex:pi,
+            location:{box:b,slot:sl}
+          }
+        };
+
+        if(dead){
+          entry.reason='Pokémon oder Link tot';
+          blocked.push(entry);
+        } else {
+          available.push(entry);
+        }
+      }
+    }
+  });
+
+  // ── link shinies ──────────────────────────────────────────────────────────
   links.forEach(otherLk=>{
+
     if(otherLk.id===lk.id) return;
+
     otherLk.slots.forEach(otherSlot=>{
+
       if(!myPis.has(otherSlot.playerIndex)) return;
-      const otherPk=getPAt(otherSlot);
-      if(!otherPk?.shiny||!otherPk?.pokeId||otherPk?.missed) return;
 
-      const mySlot=lk.slots.find(s=>s.playerIndex===otherSlot.playerIndex);
+      const otherPk = getPAt(otherSlot);
+
+      if(!otherPk?.pokeId || !otherPk?.shiny || otherPk?.missed) return;
+
+      const mySlot = lk.slots.find(s=>s.playerIndex===otherSlot.playerIndex);
+
       if(!mySlot) return;
-      const myPk=getPAt(mySlot);
 
-      const linkDead = lk.broken || otherLk.broken;
-      const pkDead   = !otherPk.alive || (myPk && !myPk.alive);
+      const myPk = getPAt(mySlot);
 
-      const entry={pi:otherSlot.playerIndex,mySlot,myPk,otherLinkId:otherLk.id,otherSlot,otherPk};
-      if(linkDead||pkDead){
-        entry.reason = linkDead ? (lk.broken?'dieser Link ist tot':'anderer Link ist tot') : 'Pokémon ist tot';
+      const dead =
+        lk.broken ||
+        otherLk.broken ||
+        !otherPk.alive ||
+        (myPk && !myPk.alive);
+
+      const entry={
+        standalone:false,
+        pi:otherSlot.playerIndex,
+        mySlot,
+        myPk,
+        otherPk,
+        otherSlot,
+        otherLinkId:otherLk.id
+      };
+
+      if(dead){
+        entry.reason='Pokémon oder Link tot';
         blocked.push(entry);
       } else {
         available.push(entry);
       }
     });
-  });
-
-  // Direction A2: standalone box shinies → swap into this link
-  myPis.forEach(pi=>{
-    for(let b=0;b<NB;b++) for(let sl=0;sl<BS;sl++){
-      const pk=box[pi]?.[b]?.[sl];
-      if(!pk?.shiny||!pk?.pokeId||pk?.missed) continue;
-      const loc='box:'+b+':'+sl;
-      if(isLinked(pi,loc)||isBroken(pi,loc)) continue;
-      const mySlot=lk.slots.find(s=>s.playerIndex===pi);
-      if(!mySlot) continue;
-      const myPk=getPAt(mySlot);
-      const pkDead=!pk.alive||(myPk&&!myPk.alive);
-      const entry={pi,mySlot,myPk,otherLinkId:null,otherSlot:{playerIndex:pi,location:{box:b,slot:sl}},otherPk:pk,standalone:true};
-      if(lk.broken||pkDead){
-        entry.reason=lk.broken?'dieser Link ist tot':'Pokémon ist tot';
-        blocked.push(entry);
-      } else {
-        available.push(entry);
-      }
-    }
   });
 
   return {available,blocked};
 }
 
-// Direction B: collect targets for swapping a shiny OUT of this link
-// shinySlot = slot in this link that has a shiny
-// targets = all other link slots of that player (NOT standalone box — those appear in section A)
-function collectOutgoingSwapTargets(lk){
-  // Find shiny slots in this link
-  const shinySlots=[];
-  lk.slots.forEach(s=>{
-    const pk=getPAt(s);
-    if(pk?.shiny&&pk?.pokeId&&!pk?.missed) shinySlots.push({s,pk});
-  });
-  if(!shinySlots.length) return [];
+function collectRestorableCandidates(lk){
 
-  const results=[];
-  shinySlots.forEach(({s:shinySlot,pk:shinyPk})=>{
-    const pi=shinySlot.playerIndex;
-    // Only other link slots — NOT standalone box pokemon (those are already in section A)
-    links.forEach(otherLk=>{
-      if(otherLk.id===lk.id) return;
-      otherLk.slots.forEach(otherSlot=>{
-        if(otherSlot.playerIndex!==pi) return;
-        const otherPk=getPAt(otherSlot);
-        if(!otherPk?.pokeId||otherPk?.missed) return;
-        const dead=lk.broken||otherLk.broken||!shinyPk.alive||!otherPk.alive;
-        results.push({pi,shinySlot,shinyPk,targetSlot:otherSlot,targetPk:otherPk,targetLinkId:otherLk.id,dead,reason:dead?(lk.broken?'dieser Link tot':otherLk.broken?'anderer Link tot':'Pokémon tot'):null});
-      });
+  const out=[];
+
+  lk.slots.forEach(slot=>{
+
+    const pk = getPAt(slot);
+
+    if(!pk?.shinySwapOrigin) return;
+
+    out.push({
+      slot,
+      pk,
+      origin:pk.shinySwapOrigin
     });
   });
-  return results;
+
+  return out;
 }
 
-// Collect links where this player's slot contains a swapped-in shiny (has shinySwapOriginId)
-function collectRestorableCandidates(lk){
-  const restorables=[];
-  lk.slots.forEach(s=>{
-    const pk=getPAt(s);
-    if(!pk?.shinySwapOriginId) return;
-    // Find the box slot holding the original
-    const pi=s.playerIndex;
-    for(let b=0;b<NB;b++) for(let sl=0;sl<BS;sl++){
-      const bpk=box[pi]?.[b]?.[sl];
-      if(bpk?.shinySwapRestoreTo){
-        const d=bpk.shinySwapRestoreTo;
-        if(d.playerIndex===pi&&JSON.stringify(d.location)===JSON.stringify(s.location)&&d.slotIndex===s.slotIndex){
-          restorables.push({s,pk,pi,bn:b,slotNum:sl,origPk:bpk});
-        }
-      }
+function restoreOriginalPokemon(slot){
+
+  const current = getPAt(slot);
+
+  if(!current?.shinySwapOrigin) return;
+
+  const origin = current.shinySwapOrigin;
+
+  const originalPokemon = structuredClone(origin.originalPokemon);
+
+  // standalone shiny
+  if(origin.type==='standalone'){
+
+    socket.emit('set-box-pokemon',{
+      playerIndex:origin.box.playerIndex,
+      boxNum:origin.box.box,
+      slotNum:origin.box.slot,
+      pokemon:clearSwapMeta(current)
+    });
+
+    setPAt(slot, originalPokemon);
+  }
+
+  // original shiny link
+  else if(origin.type==='link'){
+
+    setPAt(origin.slot, clearSwapMeta(current));
+
+    setPAt(slot, originalPokemon);
+  }
+}
+
+function moveStandaloneShinyIntoLink(e){
+
+  const shiny = structuredClone(e.otherPk);
+
+  const original = structuredClone(e.myPk);
+
+  shiny.shinySwapStandalone = true;
+
+  shiny.shinySwapOrigin = {
+    type:'standalone',
+
+    originalPokemon: structuredClone(original),
+
+    box:{
+      playerIndex:e.pi,
+      box:e.otherSlot.location.box,
+      slot:e.otherSlot.location.slot
+    }
+  };
+
+  setPAt(e.mySlot, shiny);
+
+  socket.emit('set-box-pokemon',{
+    playerIndex:e.pi,
+    boxNum:e.otherSlot.location.box,
+    slotNum:e.otherSlot.location.slot,
+    pokemon:{
+      ...structuredClone(original),
+      shinySwapRestoreTo:true
     }
   });
-  return restorables;
 }
 
-let _swapLinkId=null;
+function swapLinkShinies(aSlot, bSlot){
+
+  const aPk = structuredClone(getPAt(aSlot));
+  const bPk = structuredClone(getPAt(bSlot));
+
+  setPAt(aSlot, bPk);
+  setPAt(bSlot, aPk);
+}
+
 function openShinySwapModal(linkId){
-  _swapLinkId=linkId;
-  const lk=links.find(l=>l.id===linkId);if(!lk)return;
-  const {available,blocked}=collectShinySwapCandidates(lk);
-  const restorables=collectRestorableCandidates(lk);
-  const outgoing=collectOutgoingSwapTargets(lk);
-  const outAvail=outgoing.filter(x=>!x.dead);
-  const outBlocked=outgoing.filter(x=>x.dead);
+
+  const lk = links.find(l=>l.id===linkId);
+
+  if(!lk) return;
+
   const body=document.getElementById('ssm-body');
+
   body.innerHTML='';
 
-  // Track shown slot keys to avoid duplicates across sections
-  const shownKeys=new Set();
-  function slotKey(s){ return s.playerIndex+':'+(s.location==='team'?'team:'+s.slotIndex:JSON.stringify(s.location)); }
+  const {available,blocked}=collectShinySwapCandidates(lk);
 
-  const hasAnything=available.length||blocked.length||restorables.length||outAvail.length||outBlocked.length;
+  const restorables=collectRestorableCandidates(lk);
+
+  const hasAnything=
+    available.length||
+    blocked.length||
+    restorables.length;
+
   if(!hasAnything){
     body.innerHTML='<div class="empty-state">Keine Shiny-Tausch-Optionen verfügbar.</div>';
   }
 
-  // ── Section A: shinies from other links/box → swap INTO this link ──────────
+  // ── Available ─────────────────────────────────────────────────────────────
   if(available.length){
-    const t=document.createElement('div');t.className='lbl';t.style.marginBottom='8px';t.textContent='Shiny eintauschen (in diesen Link)';body.appendChild(t);
+
+    const t=document.createElement('div');
+
+    t.className='lbl';
+
+    t.style.marginBottom='8px';
+
+    t.textContent='Shiny tauschen';
+
+    body.appendChild(t);
+
     available.forEach(e=>{
-      const key=slotKey(e.otherSlot);
-      shownKeys.add(key);
-      const row=buildSwapRow(e,false);body.appendChild(row);
-    });
-  }
-  if(blocked.length){
-    const t=document.createElement('div');t.className='lbl';t.style.margin='12px 0 8px';t.textContent='Nicht verfügbar';body.appendChild(t);
-    blocked.forEach(e=>{
-      const key=slotKey(e.otherSlot);
-      shownKeys.add(key);
-      const row=buildSwapRow(e,true);body.appendChild(row);
-    });
-  }
 
-  // ── Section B: shiny in this link → swap OUT to other links ──────────────
-  // Only show if not already shown in section A (avoid duplicates)
-  const outAvailFiltered=outAvail.filter(x=>!shownKeys.has(slotKey(x.targetSlot)));
-  const outBlockedFiltered=outBlocked.filter(x=>!shownKeys.has(slotKey(x.targetSlot)));
-  if(outAvailFiltered.length||outBlockedFiltered.length){
-    const t=document.createElement('div');t.className='lbl';t.style.margin='14px 0 8px';t.textContent='Shiny austauschen (aus diesem Link)';body.appendChild(t);
-    outAvailFiltered.forEach(function({pi,shinySlot,shinyPk,targetSlot,targetPk,targetLinkId}){
-      shownKeys.add(slotKey(targetSlot));
-      const row=document.createElement('div');
-      row.style.cssText='display:flex;align-items:center;gap:8px;padding:8px;border-radius:9px;border:1px solid var(--bd);margin-bottom:6px;background:var(--sf2)';
-      const sn=pkName(shinyPk);const tn=pkName(targetPk);
-      row.innerHTML='<span class="pi-badge pi-'+pi+'">'+(pi+1)+'</span>'
-        +'<img src="'+spr(shinyPk.pokeId,true)+'" style="width:32px;height:32px;image-rendering:pixelated">'
-        +'<span style="font-size:.72rem">✨ '+sn+'</span>'
-        +'<span style="color:var(--txd);font-size:.8rem;padding:0 4px">↔</span>'
-        +'<img src="'+spr(targetPk.pokeId,targetPk.shiny)+'" style="width:32px;height:32px;image-rendering:pixelated">'
-        +'<div style="flex:1"><div style="font-size:.72rem;font-weight:700">'+tn+(targetPk.shiny?'✨':'')+'</div>'
-        +'<div style="font-size:.6rem;color:var(--txd);font-family:Space Mono,monospace">Link #'+targetLinkId+'</div></div>';
-      const btn=document.createElement('button');btn.className='btn btn-xs btn-w';btn.textContent='Tauschen';
-      btn.onclick=function(){
+      const row=buildSwapRow(e,false);
 
-        // ─────────────────────────────────────────────
-        // SPECIAL CASE:
-        // shiny originally came from standalone box
-        // ─────────────────────────────────────────────
-        if(shinyPk.shinySwapBoxPi !== undefined){
-
-          const originalPk = structuredClone(shinyPk.shinySwapOriginalPokemon);
-        
-          if(!originalPk){
-            toast('Original-Pokémon fehlt.',1);
-            return;
-          }
-        
-          // Find FREE box slot for Link2 pokemon
-          const freeSlot=findFreeBoxSlot(targetSlot.playerIndex);
-        
-          if(!freeSlot){
-            toast('Keine freie Box gefunden.',1);
-            return;
-          }
-        
-          // Put Link2 pokemon into FREE box slot
-          socket.emit('set-box-pokemon',{
-            playerIndex:targetSlot.playerIndex,
-            boxNum:freeSlot.box,
-            slotNum:freeSlot.slot,
-            pokemon:{
-              ...targetPk,
-              shinySwapRestoreTo:{
-                location:targetSlot.location,
-                slotIndex:targetSlot.slotIndex,
-                playerIndex:targetSlot.playerIndex
-              }
-            }
-          });
-        
-          // Restore original pokemon into Link1
-          const origin = shinyPk.shinySwapOriginalLocation;
-
-          if(origin){
-            setPAt(origin, originalPk);
-          }
-          const movedShiny = structuredClone(shinyPk);
-
-          delete movedShiny.shinySwapBoxPi;
-          delete movedShiny.shinySwapBoxBn;
-          delete movedShiny.shinySwapBoxSlot;
-
-          setPAt(targetSlot,{
-            ...movedShiny,
-          
-            shinySwapOriginalPokemon:
-              structuredClone(shinyPk.shinySwapOriginalPokemon),
-          
-            shinySwapOriginalLocation:
-              structuredClone(shinyPk.shinySwapOriginalLocation)
-          });
-      
-        } else {
-      
-          // normal swap
-          setPAt(shinySlot,Object.assign({},targetPk));
-          setPAt(targetSlot,Object.assign({},shinyPk));
-        }
-      
-        toast('✨ '+sn+' ↔ '+tn);
-        document.getElementById('ssm').classList.remove('open');
-      };
-      row.appendChild(btn);body.appendChild(row);
-    });
-    outBlockedFiltered.forEach(function({pi,shinyPk,targetPk,reason}){
-      const row=document.createElement('div');
-      row.style.cssText='display:flex;align-items:center;gap:8px;padding:8px;border-radius:9px;border:1px solid var(--bd);margin-bottom:6px;background:var(--sf2);opacity:.5';
-      const sn=pkName(shinyPk);const tn=pkName(targetPk);
-      row.innerHTML='<span class="pi-badge pi-'+pi+'">'+(pi+1)+'</span>'
-        +'<img src="'+spr(shinyPk.pokeId,true)+'" style="width:32px;height:32px;image-rendering:pixelated">'
-        +'<span style="font-size:.72rem">✨ '+sn+'</span>'
-        +'<span style="color:var(--txd);font-size:.8rem;padding:0 4px">↔</span>'
-        +'<img src="'+spr(targetPk.pokeId,targetPk.shiny)+'" style="width:32px;height:32px;image-rendering:pixelated">'
-        +'<span style="font-size:.72rem">'+tn+'</span>';
-      const badge=document.createElement('span');badge.className='lbadge broken';badge.style.fontSize='.58rem';badge.textContent=reason||'gesperrt';row.appendChild(badge);
       body.appendChild(row);
     });
   }
 
-  // ── Section C: restore previous swaps ─────────────────────────────────────
-  // Also scan box for shinySwapRestoreTo pointing to slots in THIS link
-  const extraRestorables=[];
-  lk.slots.forEach(s=>{
-    const pi=s.playerIndex;
-    for(let b=0;b<NB;b++) for(let sl=0;sl<BS;sl++){
-      const bpk=box[pi]?.[b]?.[sl];
-      if(!bpk?.shinySwapRestoreTo) continue;
-      const d=bpk.shinySwapRestoreTo;
-      if(d.playerIndex!==pi) continue;
-      if(JSON.stringify(d.location)!==JSON.stringify(s.location)&&!(d.location==='team'&&s.location==='team'&&d.slotIndex===s.slotIndex)) continue;
-      // Check not already in restorables
-      if(restorables.some(r=>r.pi===pi&&r.bn===b&&r.slotNum===sl)) continue;
-      // The current occupant of the link slot
-      const curPk=getPAt(s);
-      extraRestorables.push({s,pk:curPk,pi,bn:b,slotNum:sl,origPk:bpk});
-    }
-  });
+  // ── Blocked ───────────────────────────────────────────────────────────────
+  if(blocked.length){
 
-  const allRestorables=[...restorables,...extraRestorables];
-  if(allRestorables.length){
-    const rt=document.createElement('div');rt.className='lbl';rt.style.margin='14px 0 8px';rt.textContent='Tausch rückgängig machen';body.appendChild(rt);
-    allRestorables.forEach(function({s,pk,pi,bn,slotNum,origPk}){
+    const t=document.createElement('div');
+
+    t.className='lbl';
+
+    t.style.margin='12px 0 8px';
+
+    t.textContent='Nicht verfügbar';
+
+    body.appendChild(t);
+
+    blocked.forEach(e=>{
+
+      const row=buildSwapRow(e,true);
+
+      body.appendChild(row);
+    });
+  }
+
+  // ── Restore ───────────────────────────────────────────────────────────────
+  if(restorables.length){
+
+    const t=document.createElement('div');
+
+    t.className='lbl';
+
+    t.style.margin='14px 0 8px';
+
+    t.textContent='Zurücksetzen';
+
+    body.appendChild(t);
+
+    restorables.forEach(r=>{
+
       const row=document.createElement('div');
-      row.style.cssText='display:flex;align-items:center;gap:8px;padding:8px;border-radius:9px;border:1px solid rgba(250,204,21,.3);margin-bottom:6px;background:rgba(250,204,21,.05)';
-      const pn=pk?pkName(pk):'?';const on=pkName(origPk);
-      row.innerHTML='<span class="pi-badge pi-'+pi+'">'+(pi+1)+'</span>'
-        +(pk?.pokeId?'<img src="'+spr(pk.pokeId,pk.shiny)+'" style="width:32px;height:32px;image-rendering:pixelated">':'')
-        +'<div style="flex:1"><div style="font-size:.72rem;font-weight:700">'+(pk?.shiny?'✨ ':'')+pn+'</div>'
-        +'<div style="font-size:.6rem;color:var(--txd);font-family:Space Mono,monospace">zurück gegen: '+on+'</div></div>';
-      const btn=document.createElement('button');btn.className='btn btn-xs btn-s';btn.textContent='↩ Zurück';
-      btn.onclick=function(){
-        const origClean=Object.assign({},origPk);delete origClean.shinySwapRestoreTo;
-        setPAt(s,origClean);
-        if(pk?.pokeId){
-          const curClean=Object.assign({},pk);
-          delete curClean.shinySwapOriginId;delete curClean.shinySwapOriginName;
-          delete curClean.shinySwapBoxPi;delete curClean.shinySwapBoxBn;delete curClean.shinySwapBoxSlot;
-          socket.emit('set-box-pokemon',{playerIndex:pi,boxNum:bn,slotNum:slotNum,pokemon:curClean});
-        }
-        toast('↩ Tausch rückgängig');
+
+      row.style.cssText=
+        'display:flex;align-items:center;gap:8px;padding:8px;border-radius:9px;border:1px solid rgba(250,204,21,.3);margin-bottom:6px;background:rgba(250,204,21,.05)';
+
+      row.innerHTML=
+        '<img src="'+spr(r.pk.pokeId,r.pk.shiny)+'" style="width:32px;height:32px;image-rendering:pixelated">'
+        +'<div style="flex:1">'
+        +'<div style="font-size:.72rem;font-weight:700">✨ '+pkName(r.pk)+'</div>'
+        +'<div style="font-size:.6rem;color:var(--txd)">Original wiederherstellen</div>'
+        +'</div>';
+
+      const btn=document.createElement('button');
+
+      btn.className='btn btn-xs btn-s';
+
+      btn.textContent='↩ Zurück';
+
+      btn.onclick=()=>{
+
+        restoreOriginalPokemon(r.slot);
+
+        toast('↩ Wiederhergestellt');
+
         document.getElementById('ssm').classList.remove('open');
       };
-      row.appendChild(btn);body.appendChild(row);
+
+      row.appendChild(btn);
+
+      body.appendChild(row);
     });
   }
 
   document.getElementById('ssm').classList.add('open');
 }
 
+function buildSwapRow(e,isBlocked){
+
+  const row=document.createElement('div');
+
+  row.style.cssText=
+    'display:flex;align-items:center;gap:8px;padding:8px;border-radius:9px;border:1px solid var(--bd);margin-bottom:6px;background:var(--sf2);'
+    +(isBlocked?'opacity:.5':'');
+
+  const myName=e.myPk?.nickname||e.myPk?.name||'?';
+
+  const otherName=pkName(e.otherPk)||'?';
+
+  row.innerHTML=
+    '<span class="pi-badge pi-'+e.pi+'">'+(e.pi+1)+'</span>'
+    +'<div style="display:flex;align-items:center;gap:4px;flex:1">'
+    +(e.myPk?.pokeId
+      ?'<img src="'+spr(e.myPk.pokeId,e.myPk.shiny)+'" style="width:32px;height:32px;image-rendering:pixelated">'
+      :'<div style="width:32px;height:32px">?</div>')
+    +'<span style="font-size:.72rem">'+myName+'</span>'
+    +'<span style="color:var(--txd);font-size:.8rem;padding:0 4px">↔</span>'
+    +'<img src="'+spr(e.otherPk.pokeId,true)+'" style="width:32px;height:32px;image-rendering:pixelated">'
+    +'<span style="font-size:.72rem">✨ '+otherName+'</span>'
+    +(e.standalone
+      ?'<span style="font-size:.56rem;background:rgba(250,204,21,.15);color:var(--yw);border:1px solid rgba(250,204,21,.35);border-radius:4px;padding:1px 5px;margin-left:4px">Box ✨</span>'
+      :'')
+    +'</div>';
+
+  if(isBlocked){
+
+    const badge=document.createElement('span');
+
+    badge.className='lbadge broken';
+
+    badge.style.fontSize='.58rem';
+
+    badge.textContent=e.reason;
+
+    row.appendChild(badge);
+
+    return row;
+  }
+
+  const btn=document.createElement('button');
+
+  btn.className='btn btn-xs btn-w';
+
+  btn.textContent='Tauschen';
+
+  btn.onclick=()=>{
+
+    // standalone shiny -> link
+    if(e.standalone){
+
+      moveStandaloneShinyIntoLink(e);
+    }
+
+    // normal shiny link swap
+    else {
+
+      swapLinkShinies(e.mySlot, e.otherSlot);
+    }
+
+    toast('✨ Getauscht');
+
+    document.getElementById('ssm').classList.remove('open');
+  };
+
+  row.appendChild(btn);
+
+  return row;
+}
+
 function findFreeBoxSlot(pi){
+
   for(let b=0;b<NB;b++){
+
     for(let sl=0;sl<BS;sl++){
+
       const pk=box[pi]?.[b]?.[sl];
+
       if(!pk?.pokeId && !pk?.missed){
+
         return {box:b,slot:sl};
       }
     }
   }
+
   return null;
 }
 
-function buildSwapRow(e,isBlocked){
-  const row=document.createElement('div');
-  row.style.cssText=`display:flex;align-items:center;gap:8px;padding:8px;border-radius:9px;border:1px solid var(--bd);margin-bottom:6px;background:var(--sf2);${isBlocked?'opacity:.5':''}`;
-  // My pokemon
-  const myName=e.myPk?.nickname||e.myPk?.name||'?';
-  const otherName=e.otherPk?pkName(e.otherPk)||'?':'?';
-  const standaloneLbl=e.standalone?'<span style="font-size:.56rem;background:rgba(250,204,21,.15);color:var(--yw);border:1px solid rgba(250,204,21,.35);border-radius:4px;padding:1px 5px;margin-left:4px">Box ✨</span>':'';
-  row.innerHTML=`
-    <span class="pi-badge pi-${e.pi}">${e.pi+1}</span>
-    <div style="display:flex;align-items:center;gap:4px;flex:1">
-      ${e.myPk?.pokeId?`<img src="${spr(e.myPk.pokeId,e.myPk.shiny)}" style="width:32px;height:32px;image-rendering:pixelated">`:'<div style="width:32px;height:32px">?</div>'}
-      <span style="font-size:.72rem">${myName}</span>
-      <span style="color:var(--txd);font-size:.8rem;padding:0 4px">↔</span>
-      <img src="${spr(e.otherPk.pokeId,true)}" style="width:32px;height:32px;image-rendering:pixelated">
-      <span style="font-size:.72rem">✨ ${otherName}</span>${standaloneLbl}
-    </div>`;
-  if(isBlocked){
-    const badge=document.createElement('span');badge.className='lbadge broken';badge.style.fontSize='.58rem';badge.textContent=e.reason;row.appendChild(badge);
-  } else {
-    const btn=document.createElement('button');btn.className='btn btn-xs btn-w';btn.textContent='Tauschen';
-    btn.onclick=()=>{
-      if(e.standalone){
-        // Standalone box shiny: mark swap metadata for restore
-        const boxLoc=e.otherSlot.location;
-        const newLinkPk = Object.assign({}, e.otherPk, {
-          shinySwapOriginalPokemon: structuredClone(e.myPk),
-        
-          shinySwapOriginalLocation: {
-            playerIndex: e.mySlot.playerIndex,
-            location: structuredClone(e.mySlot.location),
-            slotIndex: e.mySlot.slotIndex
-          },
-        
-          shinySwapBoxPi: e.pi,
-          shinySwapBoxBn: boxLoc.box,
-          shinySwapBoxSlot: boxLoc.slot
-        });
-        const newBoxPk=Object.assign({},e.myPk||{},{shinySwapRestoreTo:{location:e.mySlot.location,slotIndex:e.mySlot.slotIndex,playerIndex:e.mySlot.playerIndex}});
-        setPAt(e.mySlot,newLinkPk);
-        socket.emit('set-box-pokemon',{playerIndex:e.pi,boxNum:boxLoc.box,slotNum:boxLoc.slot,pokemon:newBoxPk});
-      } else {
-        setPAt(e.mySlot,{...e.otherPk});
-        setPAt(e.otherSlot,{...e.myPk});
-      }
-      toast('✨ '+myName+' ↔ '+otherName);
-      document.getElementById('ssm').classList.remove('open');
-    };
-    row.appendChild(btn);
-  }
-  return row;
-}
-
 function setPAt(s,pk){
-  if(s.location==='team') socket.emit('set-pokemon',{playerIndex:s.playerIndex,slotIndex:s.slotIndex,pokemon:pk});
-  else if(typeof s.location==='object'&&'box'in s.location) socket.emit('set-box-pokemon',{playerIndex:s.playerIndex,boxNum:s.location.box,slotNum:s.location.slot,pokemon:pk});
-  else if(typeof s.location==='object'&&'route'in s.location) socket.emit('set-route-pokemon',{playerIndex:s.playerIndex,routeId:s.location.route,pokemon:pk});
+
+  if(s.location==='team'){
+
+    socket.emit('set-pokemon',{
+      playerIndex:s.playerIndex,
+      slotIndex:s.slotIndex,
+      pokemon:pk
+    });
+  }
+
+  else if(typeof s.location==='object'&&'box'in s.location){
+
+    socket.emit('set-box-pokemon',{
+      playerIndex:s.playerIndex,
+      boxNum:s.location.box,
+      slotNum:s.location.slot,
+      pokemon:pk
+    });
+  }
+
+  else if(typeof s.location==='object'&&'route'in s.location){
+
+    socket.emit('set-route-pokemon',{
+      playerIndex:s.playerIndex,
+      routeId:s.location.route,
+      pokemon:pk
+    });
+  }
 }
 
 // ── Link-Karte bauen ─────────────────────────────────────────────────────────
