@@ -1365,6 +1365,69 @@ function getLinkForSlot(pi, si) {
   );
 }
 
+function moveLinkToSlot(linkId,targetPi,targetSi){
+  const lk = links.find(l=>l.id===linkId);
+  if(!lk) return;
+  // Referenzslot innerhalb des Links
+  const anchor = lk.slots.find(
+    s=>s.playerIndex===targetPi
+  );
+  if(!anchor) return;
+  // Nur Teamslots erlaubt
+  if(anchor.location!=='team'){
+    toast('Link muss im Team sein',1);
+    return;
+  }
+  const fromSi = anchor.slotIndex;
+  // gleiche Position
+  if(fromSi===targetSi) return;
+  // ─────────────────────────────
+  // Ziel-Link finden
+  // ─────────────────────────────
+  const targetLink = getLinkForSlot(
+    targetPi,
+    targetSi
+  );
+  // ─────────────────────────────
+  // Pokémon sichern
+  // ─────────────────────────────
+  const draggedMons = lk.slots.map(s=>({
+    slot:s,
+    pokemon:structuredClone(getPAt(s))
+  }));
+  let targetMons=[];
+  if(targetLink && targetLink.id!==lk.id){
+    targetMons = targetLink.slots.map(s=>({
+      slot:s,
+      pokemon:structuredClone(getPAt(s))
+    }));
+  }
+  // ─────────────────────────────
+  // FALL 1:
+  // Link ↔ Link swap
+  // ────────────────────────────
+  if(targetLink && targetLink.id!==lk.id){
+    // target -> source
+    targetMons.forEach(d=>{
+      setPAt(d.slot,null);
+      d.slot.location='team';
+      d.slot.slotIndex=fromSi;
+      setPAt(d.slot,d.pokemon);
+    });
+  }
+  // ─────────────────────────────
+  // dragged -> target
+  // ─────────────────────────────
+  draggedMons.forEach(d=>{
+    setPAt(d.slot,null);
+    d.slot.location='team';
+    d.slot.slotIndex=targetSi;
+    setPAt(d.slot,d.pokemon);
+  });
+  renderSL();
+  toast('🔀 Link verschoben');
+}
+
 function renderTE(){
   const ed=document.getElementById('te');ed.innerHTML='<div class="sec-t">Team-Verwaltung</div>';
   // Always show all 3 player slots, not just connected ones
@@ -1378,10 +1441,9 @@ function renderTE(){
       const pk=team[pi]?.[si];
       const ls=locStr('team',si);const lnk=isLinked(pi,ls),brk=isBroken(pi,ls);
       const el=document.createElement('div');
-      el.dataset.playerIndex = pi;
-      el.dataset.slotIndex = si;
       el.addEventListener('dragover', e=>{
         e.preventDefault();
+        e.dataTransfer.dropEffect='move';
         el.classList.add('drag-over');
       });
       el.addEventListener('dragleave', ()=>{
@@ -1391,8 +1453,11 @@ function renderTE(){
         e.preventDefault();
         el.classList.remove('drag-over');
         if(!draggedLinkId) return;
-        moveLinkToTeamSlot(draggedLinkId, pi, si);
-        draggedLinkId = null;
+        moveLinkToSlot(
+          draggedLinkId,
+          pi,
+          si
+        );
       });
       const linkObj = getLinkForSlot(pi, si);
       const linkColor = linkObj ? getSlotColor(si) : null;
@@ -2003,8 +2068,9 @@ function buildLinkItem(lk){
   const cat=linkCategory(lk);
   const item=document.createElement('div');
   item.draggable = true;
-  item.addEventListener('dragstart', ()=>{
+  item.addEventListener('dragstart', e=>{
     draggedLinkId = lk.id;
+    e.dataTransfer.effectAllowed='move';
     item.classList.add('dragging');
   });
   item.addEventListener('dragend', ()=>{
