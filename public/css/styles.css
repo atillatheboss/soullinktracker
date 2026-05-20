@@ -101,6 +101,19 @@ select.inp{cursor:pointer}
 .ts.colored {
   outline: 2px solid var(--link-color);
 }
+.scol{
+  transition:.15s;
+}
+
+.scol.dragging{
+  opacity:.45;
+  transform:scale(.96);
+}
+
+.scol:hover{
+  outline:2px solid #6ea8ff;
+  cursor:grab;
+}
 /* arena badge bar */
 #badge-bar-wrap{overflow:hidden;max-height:0;transition:max-height .35s cubic-bezier(.4,0,.2,1)}
 #badge-bar-wrap.open{max-height:200px}
