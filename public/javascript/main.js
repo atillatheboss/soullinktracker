@@ -4911,18 +4911,18 @@ function buildGenTC(gen){
   s('ground',  [['grass',.5],['bug',.5],['flying',0],['fire',2],['electric',2],['poison',2],['rock',2],['steel',2]]);
   s('flying',  [['electric',.5],['rock',.5],['steel',.5],['ground',2],['grass',2],['fighting',2],['bug',2]]);
   s('psychic', [['psychic',.5],['steel',.5],['dark',0],['fighting',2],['poison',2]]);
-  s('bug',     [['fire',.5],['fighting',.5],['flying',.5],['ghost',.5],['steel',.5],['grass',2],['psychic',2],['dark',2]]);
+  s('bug',     [['fire',.5],['fighting',.5],['flying',.5],['ghost',.5],['steel',.5],['poison',.5],['grass',2],['psychic',2],['dark',2]]);
   s('rock',    [['fighting',.5],['ground',.5],['steel',.5],['fire',2],['ice',2],['flying',2],['bug',2]]);
   s('dragon',  [['steel',.5],['dragon',2]]);
 
   if(gen===1){
     // Gen 1: no dark/steel; ghost → psychic has no effect (the famous glitch)
-    s('ghost',   [['normal',0],['ghost',2]]);
+    s('ghost',   [['normal',0],['ghost',2],['psychic',0]]);
     // psychic has no dark immunity in gen 1 (dark doesn't exist)
     // psychic only resists psychic, effective against fighting/poison
     s('fighting',[['poison',.5],['flying',.5],['psychic',.5],['bug',.5],['ghost',0],['normal',2],['ice',2],['rock',2]]);
-    s('poison',  [['poison',.5],['ground',.5],['rock',.5],['ghost',.5],['grass',2]]);
-    s('bug',     [['fire',.5],['fighting',.5],['flying',.5],['ghost',.5],['grass',2],['psychic',2]]);
+    s('poison',  [['poison',.5],['ground',.5],['rock',.5],['ghost',.5],['grass',2],['bug',2]]);
+    s('bug',     [['fire',.5],['fighting',.5],['flying',.5],['ghost',.5],['grass',2],['psychic',2], ['poison',2]]);
   } else if(gen<=5){
     // Gen 2-5: dark and steel exist, no fairy
     s('ghost',   [['dark',.5],['normal',0],['ghost',2],['psychic',2]]);
@@ -4932,7 +4932,7 @@ function buildGenTC(gen){
     s('steel',   [['steel',.5],['fire',.5],['water',.5],['electric',.5],['ghost',.5],['dark',.5],['ice',2],['rock',2]]);
     s('fighting',[['poison',.5],['flying',.5],['psychic',.5],['bug',.5],['ghost',0],['normal',2],['ice',2],['rock',2],['dark',2],['steel',2]]);
     s('poison',  [['poison',.5],['ground',.5],['rock',.5],['ghost',.5],['steel',0],['grass',2]]);
-    s('bug',     [['fire',.5],['fighting',.5],['flying',.5],['ghost',.5],['steel',.5],['grass',2],['psychic',2],['dark',2]]);
+    s('bug',     [['fire',.5],['fighting',.5],['flying',.5],['ghost',.5],['steel',.5],['poison',.5],['grass',2],['psychic',2],['dark',2]]);
   } else {
     // Gen 6+: fairy added; steel loses ghost and dark resistances
     s('ghost',   [['dark',.5],['normal',0],['ghost',2],['psychic',2]]);
@@ -4942,7 +4942,7 @@ function buildGenTC(gen){
     s('fairy',   [['fire',.5],['poison',.5],['steel',.5],['fighting',2],['dragon',2],['dark',2]]);
     s('fighting',[['poison',.5],['flying',.5],['psychic',.5],['bug',.5],['fairy',.5],['ghost',0],['normal',2],['ice',2],['rock',2],['dark',2],['steel',2]]);
     s('poison',  [['poison',.5],['ground',.5],['rock',.5],['ghost',.5],['steel',0],['grass',2],['fairy',2]]);
-    s('bug',     [['fire',.5],['fighting',.5],['flying',.5],['ghost',.5],['steel',.5],['fairy',.5],['grass',2],['psychic',2],['dark',2]]);
+    s('bug',     [['fire',.5],['fighting',.5],['flying',.5],['ghost',.5],['steel',.5],['poison',.5]['fairy',.5],['grass',2],['psychic',2],['dark',2]]);
   }
   return tc;
 }
@@ -5375,7 +5375,7 @@ function renderTypeTable() {
   const hr = thead.insertRow();
   const corner = document.createElement('th');
   corner.className = 'th-col th-row corner';
-  corner.innerHTML = '<span style="font-size:.55rem;color:var(--txd)">ATK→<br>DEF↓</span>';
+  corner.innerHTML = `<span style="font-size:.55rem;color:var(--txd)">E${edition}<br>ATK→<br>DEF↓</span>`;
   hr.appendChild(corner);
 
   activeTypes.forEach((t, ci) => {
