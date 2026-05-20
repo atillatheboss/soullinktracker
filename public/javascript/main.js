@@ -1375,6 +1375,32 @@ function renderTE(){
             slotIndex:si,
             alive:newAlive
           });
+
+          // ─────────────────────────────────────────────
+          // FIX: Standalone-Shiny Origin mit updaten
+          // ─────────────────────────────────────────────
+          const pk = team[pi]?.[si];
+
+          if(pk?.shinySwapOrigin?.type === 'standalone') {
+
+            const origin = pk.shinySwapOrigin;
+
+            // 1. Origin-Box-Pokémon updaten (falls vorhanden)
+            if(origin.box) {
+              socket.emit('set-box-pokemon', {
+                playerIndex: origin.box.playerIndex,
+                boxNum: origin.box.box,
+                slotNum: origin.box.slot,
+                pokemon: {
+                  ...structuredClone(pk.shinySwapOriginalPokemon),
+                  alive: newAlive
+                }
+              });
+            }
+
+            // 2. Safety: auch Snapshot synchron halten
+            pk.shinySwapOrigin.originalPokemon.alive = newAlive;
+          }
         
           // ─────────────────────────────────────────────
           // HARD FIX: ALLE Box-Pokémon prüfen
