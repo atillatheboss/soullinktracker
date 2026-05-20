@@ -1670,6 +1670,109 @@ function getLinkForSlot(pi, si) {
   );
 }
 
+let _teamSlotDrag={playerIndex:null,slotIndex:null,previewPlayerIndex:null,previewSlotIndex:null};
+let _teamSlotDragSuppressUntil=0;
+function getTeamSlotElements(playerIndex=null){
+  const sel=playerIndex===null
+    ? '.pb-g .es[data-team-slot-index]'
+    : `.pb-g[data-player-index="${playerIndex}"] .es[data-team-slot-index]`;
+  return [...document.querySelectorAll(sel)];
+}
+function animateTeamSlotReflow(els,firstRects){
+  els.forEach(el=>{
+    const prev=firstRects.get(el); if(!prev)return;
+    const now=el.getBoundingClientRect();
+    const dx=prev.left-now.left, dy=prev.top-now.top;
+    if(Math.abs(dx)<1&&Math.abs(dy)<1)return;
+    el.style.transition='none';
+    el.style.transform=`translate(${dx}px,${dy}px)`;
+    requestAnimationFrame(()=>{
+      el.style.transition='transform .2s cubic-bezier(.22,.9,.24,1)';
+      el.style.transform='';
+    });
+  });
+}
+function applyTeamSlotPreviewOrder(playerIndex,sourceSlotIndex,targetSlotIndex){
+  const els=getTeamSlotElements(playerIndex);
+  if(!els.length)return;
+  const firstRects=new Map(els.map(el=>[el,el.getBoundingClientRect()]));
+  els.forEach(el=>{
+    const idx=parseInt(el.dataset.teamSlotIndex,10);
+    if(!Number.isInteger(idx))return;
+    let order=idx;
+    if(idx===sourceSlotIndex)order=targetSlotIndex;
+    else if(idx===targetSlotIndex)order=sourceSlotIndex;
+    el.style.order=String(order);
+  });
+  animateTeamSlotReflow(els,firstRects);
+}
+function clearTeamSlotPreviewOrder(playerIndex=null){
+  getTeamSlotElements(playerIndex).forEach(el=>{
+    el.style.order='';
+    el.style.transform='';
+    el.style.transition='';
+  });
+}
+function clearTeamSlotDragUI(){
+  document.querySelectorAll('.es.team-slot-dragging').forEach(el=>el.classList.remove('team-slot-dragging'));
+  document.querySelectorAll('.es.team-slot-drop-target').forEach(el=>el.classList.remove('team-slot-drop-target'));
+  clearTeamSlotPreviewOrder();
+}
+function onTeamSlotDragStart(e,playerIndex,slotIndex,slotEl){
+  if(myReadonly){e.preventDefault();return;}
+  _teamSlotDrag={playerIndex,slotIndex,previewPlayerIndex:null,previewSlotIndex:null};
+  slotEl.classList.add('team-slot-dragging');
+  try{
+    e.dataTransfer.effectAllowed='move';
+    e.dataTransfer.setData('text/plain',`team:${playerIndex}:${slotIndex}`);
+    e.dataTransfer.setDragImage(_streamEmptyDragImg,0,0);
+  }catch(_){}
+}
+function onTeamSlotDragOver(e,targetPlayerIndex,targetSlotIndex,slotEl){
+  const {playerIndex:sourcePlayerIndex,slotIndex:sourceSlotIndex}=_teamSlotDrag;
+  if(sourcePlayerIndex===null||sourceSlotIndex===null)return;
+  if(sourcePlayerIndex!==targetPlayerIndex)return;
+  if(sourceSlotIndex===targetSlotIndex){
+    if(_teamSlotDrag.previewPlayerIndex===targetPlayerIndex&&_teamSlotDrag.previewSlotIndex!==null){
+      e.preventDefault();
+      try{ if(e.dataTransfer) e.dataTransfer.dropEffect='move'; }catch(_){}
+    }
+    return;
+  }
+  e.preventDefault();
+  try{ if(e.dataTransfer) e.dataTransfer.dropEffect='move'; }catch(_){}
+  if(_teamSlotDrag.previewPlayerIndex===targetPlayerIndex&&_teamSlotDrag.previewSlotIndex===targetSlotIndex)return;
+  document.querySelectorAll('.es.team-slot-drop-target').forEach(el=>el.classList.remove('team-slot-drop-target'));
+  slotEl.classList.add('team-slot-drop-target');
+  clearTeamSlotPreviewOrder(targetPlayerIndex);
+  applyTeamSlotPreviewOrder(targetPlayerIndex,sourceSlotIndex,targetSlotIndex);
+  _teamSlotDrag.previewPlayerIndex=targetPlayerIndex;
+  _teamSlotDrag.previewSlotIndex=targetSlotIndex;
+}
+function onTeamSlotDrop(e,targetPlayerIndex,targetSlotIndex){
+  e.preventDefault();
+  const {playerIndex:sourcePlayerIndex,slotIndex:sourceSlotIndex}=_teamSlotDrag;
+  let resolvedTargetSlotIndex=targetSlotIndex;
+  if(
+    resolvedTargetSlotIndex===sourceSlotIndex &&
+    _teamSlotDrag.previewPlayerIndex===targetPlayerIndex &&
+    _teamSlotDrag.previewSlotIndex!==null
+  ){
+    resolvedTargetSlotIndex=_teamSlotDrag.previewSlotIndex;
+  }
+  clearTeamSlotDragUI();
+  if(sourcePlayerIndex===null||sourceSlotIndex===null)return;
+  if(sourcePlayerIndex!==targetPlayerIndex)return;
+  if(sourceSlotIndex===resolvedTargetSlotIndex)return;
+  socket.emit('swap-team-slots',{playerIndex:sourcePlayerIndex,slotA:sourceSlotIndex,slotB:resolvedTargetSlotIndex});
+  _teamSlotDragSuppressUntil=Date.now()+220;
+}
+function onTeamSlotDragEnd(){
+  clearTeamSlotDragUI();
+  _teamSlotDrag={playerIndex:null,slotIndex:null,previewPlayerIndex:null,previewSlotIndex:null};
+  _teamSlotDragSuppressUntil=Date.now()+220;
+}
+
 function renderTE(){
   const ed=document.getElementById('te');ed.innerHTML='<div class="sec-t">Team-Verwaltung</div>';
   // Always show all 3 player slots, not just connected ones
@@ -1679,10 +1782,12 @@ function renderTE(){
     if(!isConnected) blk.style.opacity='.45';
     blk.innerHTML=`<div class="pb-h"><span class="pi-badge pi-${pi}">${pi+1}</span><span>${getPN(pi)}</span>${pi===myPI?'<span style="font-size:.62rem;color:var(--txd);font-family:Space Mono,monospace;margin-left:3px">(du)</span>':!isConnected?'<span style="font-size:.62rem;color:var(--txd);font-family:Space Mono,monospace;margin-left:3px">(nicht dabei)</span>':''}</div>`;
     const grid=document.createElement('div');grid.className='pb-g';
+    grid.dataset.playerIndex=String(pi);
     for(let si=0;si<6;si++){
       const pk=team[pi]?.[si];
       const ls=locStr('team',si);const lnk=isLinked(pi,ls),brk=isBroken(pi,ls);
       const el=document.createElement('div');
+      const canSlotDrag=!myReadonly && isConnected;
       const linkObj = getLinkForSlot(pi, si);
       const linkColor = linkObj ? getSlotColor(si) : null;
       if (linkColor && pk?.pokeId && pk.alive) {
@@ -1701,7 +1806,8 @@ function renderTE(){
         + (lnk ? ' el' : '')
         + (brk ? ' ebr' : '')
         + (pk?.missed ? ' em' : '')
-        + (linkColor && pk?.pokeId && pk.alive ? ' elc' : '');
+        + (linkColor && pk?.pokeId && pk.alive ? ' elc' : '')
+        + (canSlotDrag ? ' team-slot-draggable' : '');
 
       if (linkColor && pk?.pokeId && pk.alive) {
         el.style.setProperty('--link-color', linkColor);
@@ -1714,10 +1820,24 @@ function renderTE(){
       else if(pk?.missed)el.innerHTML+=`<div class="ese" style="font-size:1.8rem;opacity:.4">✗</div>`;
       else el.innerHTML+=`<div class="ese">＋</div>`;
       el.innerHTML+=`<div class="esnm">${pk?.missed?'nicht gef.':(pk?pkName(pk):'leer')}</div>`;
-      el.onclick=()=>openPicker('team',pi,si);
+      el.dataset.teamSlotIndex=String(si);
+      el.setAttribute('draggable',canSlotDrag?'true':'false');
+      if(canSlotDrag){
+        el.addEventListener('dragstart',e=>onTeamSlotDragStart(e,pi,si,el));
+        el.addEventListener('dragover',e=>onTeamSlotDragOver(e,pi,si,el));
+        el.addEventListener('dragenter',e=>e.preventDefault());
+        el.addEventListener('dragleave',e=>{if(!el.contains(e.relatedTarget))el.classList.remove('team-slot-drop-target');});
+        el.addEventListener('drop',e=>onTeamSlotDrop(e,pi,si));
+        el.addEventListener('dragend',onTeamSlotDragEnd);
+      }
+      el.onclick=()=>{
+        if(Date.now()<_teamSlotDragSuppressUntil)return;
+        openPicker('team',pi,si);
+      };
       if(pk?.pokeId&&!pk?.missed){
         const tb=document.createElement('button');
         tb.className='es-tot-btn '+(pk.alive?'alive':'dead');
+        tb.setAttribute('draggable','false');
         tb.textContent=pk.alive?'💀 Tot':'♻ Ok';
         tb.onclick=(e)=>{e.stopPropagation();socket.emit('set-alive',{playerIndex:pi,slotIndex:si,alive:!pk.alive});};
         el.appendChild(tb);
@@ -1729,6 +1849,7 @@ function renderTE(){
           const evo = nextEvos[0];
           const eb = document.createElement('button');
           eb.className = 'es-evo-btn';
+          eb.setAttribute('draggable','false');
           const deName = _deNames?.get(evo.id);
           eb.textContent = '→ '+(deName||evo.name);
           eb.title = 'Entwickeln zu '+(deName||evo.name);
@@ -2285,6 +2406,134 @@ function setPAt(s,pk){
   }
 }
 
+let _slDrag={linkId:null,category:null};
+function getTeamLinkSlotIndex(lk){
+  const idxs=(lk?.slots||[])
+    .filter(s=>s.location==='team'&&Number.isInteger(s.slotIndex))
+    .map(s=>s.slotIndex);
+  if(!idxs.length)return 999;
+  return Math.min(...idxs);
+}
+function getFirstFreeTeamSlotForLink(lk){
+  if(!lk?.slots?.length)return-1;
+  for(let si=0;si<6;si++){
+    const freeForAll=lk.slots.every(s=>!team[s.playerIndex]?.[si]?.pokeId);
+    if(freeForAll)return si;
+  }
+  return -1;
+}
+function clearSoullinkDragUI(){
+  document.querySelectorAll('.li.dragging-link').forEach(el=>el.classList.remove('dragging-link'));
+  document.querySelectorAll('.li.link-drop-target').forEach(el=>el.classList.remove('link-drop-target'));
+  document.querySelectorAll('.ll-section-body.link-section-drop-target').forEach(el=>el.classList.remove('link-section-drop-target'));
+}
+function onSoullinkLinkDragStart(e,linkId,category,item){
+  if(myReadonly){e.preventDefault();return;}
+  _slDrag={linkId,category};
+  item.classList.add('dragging-link');
+  try{
+    e.dataTransfer.effectAllowed='move';
+    e.dataTransfer.setData('text/plain',String(linkId));
+  }catch(_){}
+}
+function onSoullinkLinkDragOver(e,targetLinkId,targetCategory,item){
+  if(!_slDrag.linkId||_slDrag.linkId===targetLinkId)return;
+  const sameCategory=_slDrag.category===targetCategory;
+  const boxedToTeam=_slDrag.category==='boxed'&&targetCategory==='team';
+  if(!sameCategory&&!boxedToTeam)return;
+  e.preventDefault();
+  try{ if(e.dataTransfer) e.dataTransfer.dropEffect='move'; }catch(_){}
+  clearSoullinkDragUI();
+  item.classList.add('link-drop-target');
+}
+function onSoullinkTeamSectionDragOver(e,teamLinkCount,sectionBody){
+  if(!_slDrag.linkId||_slDrag.category!=='boxed')return;
+  const sourceLink=links.find(l=>l.id===_slDrag.linkId);
+  if(!sourceLink)return;
+  if(teamLinkCount<6){
+    const freeSlot=getFirstFreeTeamSlotForLink(sourceLink);
+    if(freeSlot<0)return;
+  }
+  e.preventDefault();
+  try{ if(e.dataTransfer) e.dataTransfer.dropEffect='move'; }catch(_){}
+  clearSoullinkDragUI();
+  sectionBody.classList.add('link-section-drop-target');
+}
+function onSoullinkTeamSectionDrop(e,teamLinkCount){
+  e.preventDefault();
+  const sourceId=_slDrag.linkId;
+  const sourceCategory=_slDrag.category;
+  clearSoullinkDragUI();
+  if(!sourceId||sourceCategory!=='boxed'){
+    _slDrag={linkId:null,category:null};
+    return;
+  }
+  const sourceLink=links.find(l=>l.id===sourceId);
+  if(!sourceLink){
+    _slDrag={linkId:null,category:null};
+    return;
+  }
+  if(teamLinkCount>=6){
+    toast('Team ist voll: zieh auf einen Team-Link zum Tauschen.',1);
+    _slDrag={linkId:null,category:null};
+    return;
+  }
+  const freeSlot=getFirstFreeTeamSlotForLink(sourceLink);
+  if(freeSlot<0){
+    toast('Kein gemeinsamer freier Team-Slot verfügbar.',1);
+    _slDrag={linkId:null,category:null};
+    return;
+  }
+  socket.emit('move-link-to-team',{linkId:sourceId,slotIndex:freeSlot});
+  toast(`📥 Link ins Team auf Slot ${freeSlot+1} verschoben`);
+  _slDrag={linkId:null,category:null};
+}
+function onSoullinkLinkDrop(e,targetLinkId,targetCategory){
+  e.preventDefault();
+  const sourceId=_slDrag.linkId;
+  const sourceCategory=_slDrag.category;
+  clearSoullinkDragUI();
+  if(!sourceId||sourceId===targetLinkId)return;
+  if(targetCategory==='team'&&sourceCategory==='boxed'){
+    const sourceLink=links.find(l=>l.id===sourceId);
+    const targetLink=links.find(l=>l.id===targetLinkId);
+    const teamLinks=links.filter(lk=>linkCategory(lk)==='team');
+    if(!sourceLink||!targetLink){_slDrag={linkId:null,category:null};return;}
+    if(teamLinks.length<6){
+      const freeSlot=getFirstFreeTeamSlotForLink(sourceLink);
+      if(freeSlot<0){
+        toast('Kein gemeinsamer freier Team-Slot verfügbar.',1);
+      }else{
+        socket.emit('move-link-to-team',{linkId:sourceId,slotIndex:freeSlot});
+        toast(`📥 Link ins Team auf Slot ${freeSlot+1} verschoben`);
+      }
+    }else{
+      const targetSlot=getTeamLinkSlotIndex(targetLink);
+      if(targetSlot<0||targetSlot>5||!Number.isInteger(targetSlot)){
+        toast('Ziel-Slot konnte nicht ermittelt werden.',1);
+      }else{
+        socket.emit('move-link-to-team',{linkId:sourceId,slotIndex:targetSlot});
+        toast(`🔁 Mit Team-Slot ${targetSlot+1} getauscht`);
+      }
+    }
+    _slDrag={linkId:null,category:null};
+    return;
+  }
+  if(sourceCategory!==targetCategory)return;
+  if(targetCategory==='team'){
+    socket.emit('swap-links-team',{linkAId:sourceId,linkBId:targetLinkId});
+    toast('🔁 Team-Links getauscht');
+  } else if(targetCategory==='boxed'){
+    socket.emit('swap-links-box',{linkAId:sourceId,linkBId:targetLinkId});
+    toast('🔁 Box-Links getauscht');
+  }
+  _slDrag={linkId:null,category:null};
+}
+function onSoullinkLinkDragEnd(){
+  clearSoullinkDragUI();
+  _slDrag={linkId:null,category:null};
+}
+
 // ── Link-Karte bauen ─────────────────────────────────────────────────────────
 function buildLinkItem(lk){
   const isRoute=!!lk.routeId;
@@ -2389,21 +2638,58 @@ function renderLL(){
   const list=document.getElementById('ll-list');if(!list)return;
   list.innerHTML='';
 
-  const teamLinks  = links.filter(lk=>linkCategory(lk)==='team');
+  const teamLinks  = links
+    .filter(lk=>linkCategory(lk)==='team')
+    .sort((a,b)=>{
+      const da=getTeamLinkSlotIndex(a), db=getTeamLinkSlotIndex(b);
+      if(da!==db)return da-db;
+      return (a.id||0)-(b.id||0);
+    });
   const boxedLinks = links.filter(lk=>linkCategory(lk)==='boxed');
 
-  function section(title, icon, arr, emptyMsg){
+  function section(title, icon, arr, emptyMsg, secType){
     const wrap=document.createElement('div');wrap.style.marginBottom='4px';
     const t=document.createElement('div');t.className='ll-section-title';
     t.innerHTML=`${icon} ${title} <span class="ll-count">${arr.length}</span>`;
     wrap.appendChild(t);
-    if(!arr.length){const e=document.createElement('div');e.className='empty-state';e.style.paddingTop='10px';e.textContent=emptyMsg;wrap.appendChild(e);}
-    else arr.forEach(lk=>wrap.appendChild(buildLinkItem(lk)));
+    const body=document.createElement('div');
+    body.className='ll-section-body';
+    if(!arr.length){
+      const e=document.createElement('div');
+      e.className='empty-state';
+      e.style.paddingTop='10px';
+      e.textContent=emptyMsg;
+      body.appendChild(e);
+    }else arr.forEach(lk=>{
+      const item=buildLinkItem(lk);
+      const canDrag=!myReadonly && (secType==='team'||secType==='boxed');
+      if(canDrag){
+        item.setAttribute('draggable','true');
+        item.classList.add('li-draggable');
+        item.addEventListener('dragstart',e=>onSoullinkLinkDragStart(e,lk.id,secType,item));
+        item.addEventListener('dragover',e=>onSoullinkLinkDragOver(e,lk.id,secType,item));
+        item.addEventListener('dragenter',e=>e.preventDefault());
+        item.addEventListener('dragleave',e=>{ if(!item.contains(e.relatedTarget)) item.classList.remove('link-drop-target'); });
+        item.addEventListener('drop',e=>onSoullinkLinkDrop(e,lk.id,secType));
+        item.addEventListener('dragend',onSoullinkLinkDragEnd);
+      }else{
+        item.setAttribute('draggable','false');
+      }
+      body.appendChild(item);
+    });
+    if(!myReadonly&&secType==='team'){
+      body.addEventListener('dragover',e=>onSoullinkTeamSectionDragOver(e,teamLinks.length,body));
+      body.addEventListener('dragenter',e=>{if(_slDrag.category==='boxed')e.preventDefault();});
+      body.addEventListener('dragleave',e=>{ if(!body.contains(e.relatedTarget)) body.classList.remove('link-section-drop-target'); });
+      body.addEventListener('drop',e=>onSoullinkTeamSectionDrop(e,teamLinks.length));
+      body.addEventListener('dragend',onSoullinkLinkDragEnd);
+    }
+    wrap.appendChild(body);
     return wrap;
   }
 
-  list.appendChild(section('Im Team','👥',teamLinks,'Keine Links im Team.'));
-  list.appendChild(section('In der Box','📦',boxedLinks,'Keine Links in der Box.'));
+  list.appendChild(section('Im Team','👥',teamLinks,'Keine Links im Team.','team'));
+  list.appendChild(section('In der Box','📦',boxedLinks,'Keine Links in der Box.','boxed'));
 }
 
 function getPAt(s){
