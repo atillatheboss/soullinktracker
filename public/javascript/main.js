@@ -1361,6 +1361,7 @@ function renderTE(){
       const pk=team[pi]?.[si];
       const ls=locStr('team',si);const lnk=isLinked(pi,ls),brk=isBroken(pi,ls);
       const el=document.createElement('div');
+      const linkObj = getLinkForSlot(pi, si);
       const linkColor = linkObj ? linkColorFn(linkObj) : null;
       el.className =
         'es'
@@ -1442,7 +1443,7 @@ function linkCategory(lk){
   return 'boxed';
 }
 
-function linkColor(lk){
+function getLinkColor(lk){
   // Only color when at least one member is in TEAM
   // Otherwise fallback to purple (default behavior)
   if (!lk.slots.some(s => s.location === 'team')) {
@@ -2202,7 +2203,7 @@ function renderBoxMain(){
     const pk=box[pi][bn][s];
     const ls=`box:${bn}:${s}`;const lnk=isLinked(pi,ls),brk=isBroken(pi,ls);
     const linkObj = getLinkForSlot(pi, si); // you likely already have something similar
-    const linkColor = linkObj ? linkColor(linkObj) : null; 
+    const linkColor = linkObj ? getLinkColor(linkObj) : null; 
     const d=document.createElement('div');
     const standaloneShiny=pk?.shiny&&pk?.pokeId&&!lnk&&!brk&&!pk?.missed;
     const isSwappedIn=!!pk?.shinySwapOriginId;
