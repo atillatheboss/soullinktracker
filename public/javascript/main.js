@@ -1630,8 +1630,6 @@ function openShinySwapModal(linkId){
           setPAt(targetSlot,{
             ...shinyPk
           });
-        
-        }
       
         } else {
       
