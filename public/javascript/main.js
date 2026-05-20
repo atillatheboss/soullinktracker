@@ -1366,12 +1366,10 @@ function renderTE(){
         tb.className='es-tot-btn '+(pk.alive?'alive':'dead');
         tb.textContent=pk.alive?'💀 Tot':'♻ Ok';
         tb.onclick=(e)=>{
-
           e.stopPropagation();
         
           const newAlive = !pk.alive;
         
-          // aktuelles Pokémon setzen
           socket.emit('set-alive',{
             playerIndex:pi,
             slotIndex:si,
@@ -1379,28 +1377,28 @@ function renderTE(){
           });
         
           // ─────────────────────────────────────────────
-          // WICHTIG:
-          // falls ein Original-Pokémon in Box geparkt ist,
-          // muss dieses ebenfalls sterben/wiederbelebt werden
+          // HARD FIX: ALLE Box-Pokémon prüfen
+          // die dieses Link-Pokémon als "Restore-Ziel" haben
           // ─────────────────────────────────────────────
         
           for(let b=0;b<NB;b++){
-        
             for(let sl=0;sl<BS;sl++){
         
               const bpk = box[pi]?.[b]?.[sl];
-        
               if(!bpk?.shinySwapRestoreTo) continue;
         
-              const d = bpk.shinySwapRestoreTo;
+              const r = bpk.shinySwapRestoreTo;
         
-              const sameSlot =
-                d.playerIndex===pi &&
-                d.slotIndex===si &&
-                d.location==='team';
+              // Match über exakten Slot
+              const match =
+                r.playerIndex === pi &&
+                r.location === 'team' &&
+                r.slotIndex === si;
         
-              if(!sameSlot) continue;
+              if(!match) continue;
         
+              // WICHTIG:
+              // dieses Box-Pokémon ist das ORIGINAL → Zustand synchronisieren
               socket.emit('set-box-pokemon',{
                 playerIndex:pi,
                 boxNum:b,
