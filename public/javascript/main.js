@@ -1466,14 +1466,21 @@ function clearSwapMeta(pk){
 }
 
 function collectShinySwapCandidates(lk){
+
   const available=[];
   const blocked=[];
 
   const myPis = new Set(lk.slots.map(s=>s.playerIndex));
 
-  // ── standalone box shinies ────────────────────────────────────────────────
+  // ─────────────────────────────────────────────
+  // 1. STANDALONE SHINIES AUS BOXEN
+  // dürfen IMMER in Links eingesetzt werden
+  // ─────────────────────────────────────────────
+
   myPis.forEach(pi=>{
+
     for(let b=0;b<NB;b++){
+
       for(let sl=0;sl<BS;sl++){
 
         const pk = box[pi]?.[b]?.[sl];
@@ -1485,11 +1492,15 @@ function collectShinySwapCandidates(lk){
         if(isLinked(pi,loc) || isBroken(pi,loc)) continue;
 
         const mySlot = lk.slots.find(s=>s.playerIndex===pi);
+
         if(!mySlot) continue;
 
         const myPk = getPAt(mySlot);
 
-        const dead = lk.broken || !pk.alive || (myPk && !myPk.alive);
+        const dead =
+          lk.broken ||
+          !pk.alive ||
+          (myPk && !myPk.alive);
 
         const entry={
           standalone:true,
@@ -1513,7 +1524,11 @@ function collectShinySwapCandidates(lk){
     }
   });
 
-  // ── link shinies ──────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────
+  // 2. NUR ORIGINALE LINK-SHINIES
+  // dürfen per 1:1 Linkswap getauscht werden
+  // ─────────────────────────────────────────────
+
   links.forEach(otherLk=>{
 
     if(otherLk.id===lk.id) return;
@@ -1524,9 +1539,20 @@ function collectShinySwapCandidates(lk){
 
       const otherPk = getPAt(otherSlot);
 
-      if(!otherPk?.pokeId || !otherPk?.shiny || otherPk?.missed) return;
+      if(!otherPk?.pokeId) return;
+      if(!otherPk?.shiny) return;
+      if(otherPk?.missed) return;
 
-      const mySlot = lk.slots.find(s=>s.playerIndex===otherSlot.playerIndex);
+      // ─────────────────────────────
+      // DAS IST DER WICHTIGE FIX:
+      // standalone shinies ausschließen
+      // ─────────────────────────────
+
+      if(otherPk.shinySwapStandalone) return;
+
+      const mySlot = lk.slots.find(
+        s=>s.playerIndex===otherSlot.playerIndex
+      );
 
       if(!mySlot) return;
 
