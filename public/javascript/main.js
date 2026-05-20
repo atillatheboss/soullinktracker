@@ -1366,65 +1366,108 @@ function getLinkForSlot(pi, si) {
 }
 
 function moveLinkToSlot(linkId,targetPi,targetSi){
+
   const lk = links.find(l=>l.id===linkId);
+
   if(!lk) return;
-  // Referenzslot innerhalb des Links
+
+  // Referenzslot
   const anchor = lk.slots.find(
     s=>s.playerIndex===targetPi
   );
+
   if(!anchor) return;
-  // Nur Teamslots erlaubt
+
   if(anchor.location!=='team'){
     toast('Link muss im Team sein',1);
     return;
   }
+
   const fromSi = anchor.slotIndex;
-  // gleiche Position
+
   if(fromSi===targetSi) return;
-  // ─────────────────────────────
-  // Ziel-Link finden
-  // ─────────────────────────────
+
   const targetLink = getLinkForSlot(
     targetPi,
     targetSi
   );
+
   // ─────────────────────────────
   // Pokémon sichern
   // ─────────────────────────────
+
   const draggedMons = lk.slots.map(s=>({
-    slot:s,
+    oldSlot:structuredClone(s),
     pokemon:structuredClone(getPAt(s))
   }));
+
   let targetMons=[];
+
   if(targetLink && targetLink.id!==lk.id){
+
     targetMons = targetLink.slots.map(s=>({
-      slot:s,
+      oldSlot:structuredClone(s),
       pokemon:structuredClone(getPAt(s))
     }));
   }
+
   // ─────────────────────────────
-  // FALL 1:
-  // Link ↔ Link swap
-  // ────────────────────────────
+  // NEUE SLOTDATEN BERECHNEN
+  // ─────────────────────────────
+
+  const newDraggedSlots = lk.slots.map(s=>({
+    ...structuredClone(s),
+    location:'team',
+    slotIndex:targetSi
+  }));
+
+  let newTargetSlots=[];
+
   if(targetLink && targetLink.id!==lk.id){
-    // target -> source
-    targetMons.forEach(d=>{
-      setPAt(d.slot,null);
-      d.slot.location='team';
-      d.slot.slotIndex=fromSi;
-      setPAt(d.slot,d.pokemon);
-    });
+
+    newTargetSlots = targetLink.slots.map(s=>({
+      ...structuredClone(s),
+      location:'team',
+      slotIndex:fromSi
+    }));
   }
+
   // ─────────────────────────────
-  // dragged -> target
+  // LINKS AKTUALISIEREN
   // ─────────────────────────────
+
+  lk.slots = newDraggedSlots;
+
+  if(targetLink && targetLink.id!==lk.id){
+    targetLink.slots = newTargetSlots;
+  }
+
+  // ─────────────────────────────
+  // ALTE SLOTS LEEREN
+  // ─────────────────────────────
+
   draggedMons.forEach(d=>{
-    setPAt(d.slot,null);
-    d.slot.location='team';
-    d.slot.slotIndex=targetSi;
-    setPAt(d.slot,d.pokemon);
+    setPAt(d.oldSlot,null);
   });
+
+  targetMons.forEach(d=>{
+    setPAt(d.oldSlot,null);
+  });
+
+  // ─────────────────────────────
+  // POKÉMON SETZEN
+  // ─────────────────────────────
+
+  newDraggedSlots.forEach((slot,i)=>{
+    setPAt(slot,draggedMons[i].pokemon);
+  });
+
+  newTargetSlots.forEach((slot,i)=>{
+    setPAt(slot,targetMons[i].pokemon);
+  });
+
   renderSL();
+
   toast('🔀 Link verschoben');
 }
 
