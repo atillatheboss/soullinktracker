@@ -36,8 +36,6 @@ let selectedEdition=null;
 const colAssign={};
 function es(){return{pokeId:null,name:'',nickname:'',shiny:false,alive:true,missed:false};}
 
-let draggedLinkId = null;
-
 // ═══════════════════════════════════════════════
 // PAGES
 // ═══════════════════════════════════════════════
@@ -1365,116 +1363,6 @@ function getLinkForSlot(pi, si) {
   );
 }
 
-function moveLinkToSlot(linkId,targetPi,targetSi){
-
-  const lk = links.find(l=>l.id===linkId);
-
-  if(!lk) return;
-
-  const anchor = lk.slots.find(
-    s=>s.playerIndex===targetPi
-  );
-
-  if(!anchor) return;
-
-  const fromSi = Number(anchor.slotIndex);
-
-  targetSi = Number(targetSi);
-
-  if(fromSi===targetSi) return;
-
-  const targetLink = getLinkForSlot(
-    targetPi,
-    targetSi
-  );
-
-  // ─────────────────────────────
-  // Daten sichern
-  // ─────────────────────────────
-
-  const dragged = lk.slots.map(s=>({
-    playerIndex:s.playerIndex,
-    oldSlot:structuredClone(s),
-    pokemon:structuredClone(getPAt(s))
-  }));
-
-  let target=[];
-
-  if(targetLink && targetLink.id!==lk.id){
-
-    target = targetLink.slots.map(s=>({
-      playerIndex:s.playerIndex,
-      oldSlot:structuredClone(s),
-      pokemon:structuredClone(getPAt(s))
-    }));
-  }
-
-  // ─────────────────────────────
-  // Alte Slots leeren
-  // ─────────────────────────────
-
-  dragged.forEach(d=>{
-    setPAt(d.oldSlot,null);
-  });
-
-  target.forEach(d=>{
-    setPAt(d.oldSlot,null);
-  });
-
-  // ─────────────────────────────
-  // Dragged Link setzen
-  // ─────────────────────────────
-
-  dragged.forEach(d=>{
-
-    const newSlot={
-      playerIndex:d.playerIndex,
-      location:'team',
-      slotIndex:targetSi
-    };
-
-    setPAt(newSlot,d.pokemon);
-  });
-
-  // ─────────────────────────────
-  // Target Link zurücksetzen
-  // ─────────────────────────────
-
-  target.forEach(d=>{
-
-    const newSlot={
-      playerIndex:d.playerIndex,
-      location:'team',
-      slotIndex:fromSi
-    };
-
-    setPAt(newSlot,d.pokemon);
-  });
-
-  // ─────────────────────────────
-  // WICHTIG:
-  // Links komplett neu bauen
-  // ─────────────────────────────
-
-  lk.slots = dragged.map(d=>({
-    playerIndex:d.playerIndex,
-    location:'team',
-    slotIndex:targetSi
-  }));
-
-  if(targetLink && targetLink.id!==lk.id){
-
-    targetLink.slots = target.map(d=>({
-      playerIndex:d.playerIndex,
-      location:'team',
-      slotIndex:fromSi
-    }));
-  }
-
-  renderSL();
-
-  toast('🔀 Link verschoben');
-}
 function renderTE(){
   const ed=document.getElementById('te');ed.innerHTML='<div class="sec-t">Team-Verwaltung</div>';
   // Always show all 3 player slots, not just connected ones
@@ -1488,24 +1376,6 @@ function renderTE(){
       const pk=team[pi]?.[si];
       const ls=locStr('team',si);const lnk=isLinked(pi,ls),brk=isBroken(pi,ls);
       const el=document.createElement('div');
-      el.addEventListener('dragover', e=>{
-        e.preventDefault();
-        e.dataTransfer.dropEffect='move';
-        el.classList.add('drag-over');
-      });
-      el.addEventListener('dragleave', ()=>{
-        el.classList.remove('drag-over');
-      });
-      el.addEventListener('drop', e=>{
-        e.preventDefault();
-        el.classList.remove('drag-over');
-        if(!draggedLinkId) return;
-        moveLinkToSlot(
-          draggedLinkId,
-          pi,
-          si
-        );
-      });
       const linkObj = getLinkForSlot(pi, si);
       const linkColor = linkObj ? getSlotColor(si) : null;
       if (linkColor && pk?.pokeId && pk.alive) {
@@ -2114,16 +1984,6 @@ function buildLinkItem(lk){
   const hasShiny=lk.slots.some(s=>getPAt(s)?.shiny);
   const cat=linkCategory(lk);
   const item=document.createElement('div');
-  item.draggable = true;
-  item.addEventListener('dragstart', e=>{
-    draggedLinkId = lk.id;
-    e.dataTransfer.effectAllowed='move';
-    item.classList.add('dragging');
-  });
-  item.addEventListener('dragend', ()=>{
-    draggedLinkId = null;
-    item.classList.remove('dragging');
-  });
   item.className='li'+(lk.broken?' broken':'')+(isRoute?' route-link':'');
 
   // ── Sprites ──
