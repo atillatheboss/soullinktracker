@@ -1460,9 +1460,12 @@ function getLinkColor(lk){
   }
 
   const colors = [
-    '#ff4d4d', '#4da6ff', '#4dff88', '#ffcc4d',
-    '#b84dff', '#ff4df0', '#4dfff2', '#ff7a4d',
-    '#ff9f1c', '#2ec4b6'
+    '#ff3b3b', // rot
+    '#3b82ff', // blau
+    '#ffd43b', // gelb
+    '#22c55e', // grün
+    '#a855f7', // lila
+    '#ff8a1f'  // orange
   ];
 
   return colors[hash % colors.length];
