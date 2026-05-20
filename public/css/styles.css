@@ -175,6 +175,10 @@
     .essh{position:absolute;top:2px;right:3px;font-size:.62rem}.esdd{position:absolute;bottom:2px;right:3px;font-size:.62rem}
     .esld{position:absolute;top:2px;right:14px;width:5px;height:5px;border-radius:50%;background:var(--a)}.esld.broken{background:var(--rd)}.esld.missed{background:var(--yw)}
     .es-acts{display:flex;gap:3px;flex-wrap:wrap;justify-content:center;padding:3px 10px 7px}
+    .es.elc {
+      outline: 3px solid var(--link-color);
+      box-shadow: 0 0 8px var(--link-color);
+    }
 
     /* ── BOX ── */
     .box-layout{display:grid;grid-template-columns:155px 1fr;flex:1;min-height:0}

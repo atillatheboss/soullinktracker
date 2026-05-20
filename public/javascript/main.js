@@ -1351,7 +1351,20 @@ function renderTE(){
       const pk=team[pi]?.[si];
       const ls=locStr('team',si);const lnk=isLinked(pi,ls),brk=isBroken(pi,ls);
       const el=document.createElement('div');
-      el.className='es'+(pk?.pokeId||pk?.missed?' ep':'')+(pk?.shiny?' esh':'')+(pk?.pokeId&&!pk.alive?' ed':'')+(lnk?' el':'')+(brk?' ebr':'')+(pk?.missed?' em':'');
+      const linkColor = linkObj ? linkColorFn(linkObj) : null;
+      el.className =
+        'es'
+        + (pk?.pokeId || pk?.missed ? ' ep' : '')
+        + (pk?.shiny ? ' esh' : '')
+        + (pk?.pokeId && !pk.alive ? ' ed' : '')
+        + (lnk ? ' el' : '')
+        + (brk ? ' ebr' : '')
+        + (pk?.missed ? ' em' : '')
+        + (linkColor && pk?.pokeId && pk.alive ? ' elc' : '');
+
+      if (linkColor && pk?.pokeId && pk.alive) {
+        el.style.setProperty('--link-color', linkColor);
+      }
       el.innerHTML=`<div class="esn">${si+1}</div>`;
       if(lnk||brk)el.innerHTML+=`<div class="esld${brk?' broken':lnk&&pk?.missed?' missed':''}"></div>`;
       if(pk?.shiny)el.innerHTML+=`<div class="essh">✨</div>`;
@@ -1417,6 +1430,22 @@ function linkCategory(lk){
   if(lk.slots.some(s=>s.location==='team')) return 'team';
   if(lk.broken) return 'dead';
   return 'boxed';
+}
+
+function linkColor(lk){
+  // Only color when at least one member is in TEAM
+  // Otherwise fallback to purple (default behavior)
+  if (!lk.slots.some(s => s.location === 'team')) {
+    return 'purple';
+  }
+
+  // stable per linkId (or fallback)
+  const colors = [
+    '#ff4d4d', '#4da6ff', '#4dff88', '#ffcc4d',
+    '#b84dff', '#ff4df0', '#4dfff2', '#ff7a4d'
+  ];
+
+  return colors[(lk.id || 0) % colors.length];
 }
 
 // ── Shiny-Tausch Modal ───────────────────────────────────────────────────────
@@ -2148,6 +2177,16 @@ function renderBoxSB(){
     sb.appendChild(sec);
   });
 }
+function getLinkForSlot(pi, loc){
+  return links.find(lk =>
+    lk.slots.some(s =>
+      s.playerIndex === pi &&
+      s.location === 'team' &&
+      s.slotIndex === loc.slotIndex
+    )
+  );
+}
+
 function renderBoxMain(){
   const main=document.getElementById('box-main');if(!main)return;
   const {pi,bn}=bv;
@@ -2161,6 +2200,8 @@ function renderBoxMain(){
   for(let s=0;s<BS;s++){
     const pk=box[pi][bn][s];
     const ls=`box:${bn}:${s}`;const lnk=isLinked(pi,ls),brk=isBroken(pi,ls);
+    const linkObj = getLinkForSlot(pi, si); // you likely already have something similar
+    const linkColor = linkObj ? linkColor(linkObj) : null; 
     const d=document.createElement('div');
     const standaloneShiny=pk?.shiny&&pk?.pokeId&&!lnk&&!brk&&!pk?.missed;
     const isSwappedIn=!!pk?.shinySwapOriginId;
