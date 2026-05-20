@@ -1365,7 +1365,54 @@ function renderTE(){
         const tb=document.createElement('button');
         tb.className='es-tot-btn '+(pk.alive?'alive':'dead');
         tb.textContent=pk.alive?'💀 Tot':'♻ Ok';
-        tb.onclick=(e)=>{e.stopPropagation();socket.emit('set-alive',{playerIndex:pi,slotIndex:si,alive:!pk.alive});};
+        tb.onclick=(e)=>{
+
+          e.stopPropagation();
+        
+          const newAlive = !pk.alive;
+        
+          // aktuelles Pokémon setzen
+          socket.emit('set-alive',{
+            playerIndex:pi,
+            slotIndex:si,
+            alive:newAlive
+          });
+        
+          // ─────────────────────────────────────────────
+          // WICHTIG:
+          // falls ein Original-Pokémon in Box geparkt ist,
+          // muss dieses ebenfalls sterben/wiederbelebt werden
+          // ─────────────────────────────────────────────
+        
+          for(let b=0;b<NB;b++){
+        
+            for(let sl=0;sl<BS;sl++){
+        
+              const bpk = box[pi]?.[b]?.[sl];
+        
+              if(!bpk?.shinySwapRestoreTo) continue;
+        
+              const d = bpk.shinySwapRestoreTo;
+        
+              const sameSlot =
+                d.playerIndex===pi &&
+                d.slotIndex===si &&
+                d.location==='team';
+        
+              if(!sameSlot) continue;
+        
+              socket.emit('set-box-pokemon',{
+                playerIndex:pi,
+                boxNum:b,
+                slotNum:sl,
+                pokemon:{
+                  ...bpk,
+                  alive:newAlive
+                }
+              });
+            }
+          }
+        };
         el.appendChild(tb);
         // Async: add evolve button if pokemon has next evolution
         (async()=>{
