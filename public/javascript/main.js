@@ -1997,53 +1997,118 @@ function setPAt(s,pk){
 }
 
 function moveLinkToTeamSlot(linkId, targetPi, targetSi){
+
   const lk = links.find(l=>l.id===linkId);
+
   if(!lk) return;
-  // find member belonging to target player
-  const ownSlot = lk.slots.find(s=>s.playerIndex===targetPi);
-  if(!ownSlot) {
-    toast('Dieser Link gehört nicht zu diesem Spieler.',1);
+
+  // Slot des Zielspielers innerhalb des Links
+  const anchorSlot = lk.slots.find(
+    s=>s.playerIndex===targetPi
+  );
+
+  if(!anchorSlot){
+    toast('Ungültiger Zielslot',1);
     return;
   }
-  // already there
+
+  // Bereits dort
   if(
-    ownSlot.location === 'team' &&
-    ownSlot.slotIndex === targetSi
-  ) return;
-  const targetPokemon = team[targetPi]?.[targetSi];
-  // if target occupied -> move old occupant back
-  if(targetPokemon){
-    const displacedLink = getLinkForSlot(targetPi, targetSi);
-    // linked pokemon
-    if(displacedLink){
-      displacedLink.slots.forEach(s=>{
-        const pk = getPAt(s);
-        // move into old locations of dragged link
-        const old = lk.slots.find(x=>x.playerIndex===s.playerIndex);
-        if(!old) return;
-        setPAt(old, pk);
-        // update slot metadata
-        s.location = old.location;
-        if(old.slotIndex !== undefined)
-          s.slotIndex = old.slotIndex;
-      });
-    }
-    // standalone pokemon
-    else {
-      setPAt(ownSlot, structuredClone(targetPokemon));
-    }
+    anchorSlot.location==='team' &&
+    anchorSlot.slotIndex===targetSi
+  ){
+    return;
   }
-  // move dragged link into new team positions
-  lk.slots.forEach(s=>{
-    const pk = getPAt(s);
-    // clear old
-    setPAt(s, null);
-    s.location = 'team';
-    s.slotIndex = targetSi;
-    setPAt(s, pk);
+
+  // ─────────────────────────────────────
+  // Alte Pokémon sichern
+  // ─────────────────────────────────────
+
+  const draggedData = lk.slots.map(s=>({
+    slot:s,
+    pokemon:structuredClone(getPAt(s))
+  }));
+
+  // ─────────────────────────────────────
+  // Ziel-Link prüfen
+  // ─────────────────────────────────────
+
+  const targetLink = getLinkForSlot(targetPi,targetSi);
+
+  let displacedData=[];
+
+  if(targetLink && targetLink.id!==lk.id){
+
+    displacedData = targetLink.slots.map(s=>({
+      slot:s,
+      pokemon:structuredClone(getPAt(s))
+    }));
+  }
+
+  // ─────────────────────────────────────
+  // Alte Positionen des gezogenen Links
+  // merken → dort landet später der andere
+  // ─────────────────────────────────────
+
+  const oldPositions = lk.slots.map(s=>({
+    playerIndex:s.playerIndex,
+    location:structuredClone(s.location),
+    slotIndex:s.slotIndex
+  }));
+
+  // ─────────────────────────────────────
+  // FALL 1:
+  // Ziel enthält anderen Link
+  // → komplette Links tauschen
+  // ─────────────────────────────────────
+
+  if(targetLink && targetLink.id!==lk.id){
+
+    // andere Pokémon zuerst zurück
+    displacedData.forEach(d=>{
+
+      const targetOld = oldPositions.find(
+        x=>x.playerIndex===d.slot.playerIndex
+      );
+
+      if(!targetOld) return;
+
+      // altes Ziel leeren
+      setPAt(d.slot,null);
+
+      // slotdaten ändern
+      d.slot.location = structuredClone(targetOld.location);
+
+      if(targetOld.slotIndex!==undefined)
+        d.slot.slotIndex = targetOld.slotIndex;
+      else
+        delete d.slot.slotIndex;
+
+      // pokemon setzen
+      setPAt(d.slot,d.pokemon);
+    });
+  }
+
+  // ─────────────────────────────────────
+  // Gezogenen Link verschieben
+  // ─────────────────────────────────────
+
+  draggedData.forEach(d=>{
+
+    // alten slot leeren
+    setPAt(d.slot,null);
+
+    // neuer teamslot
+    d.slot.location='team';
+    d.slot.slotIndex=targetSi;
+
+    // pokemon wieder einsetzen
+    setPAt(d.slot,d.pokemon);
   });
-  renderSL();
+
   toast('🔀 Link verschoben');
+
+  renderSL();
 }
 
 // ── Link-Karte bauen ─────────────────────────────────────────────────────────
