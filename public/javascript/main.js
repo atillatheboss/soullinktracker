@@ -24,6 +24,8 @@ const collapsedRunHistory = new Set();
 let _timerInterval=null;
 const peers=new Map();
 const slotUsed=[false,false];
+let colOrder = [0, 1, 2];
+let peerOrder = [0,1,2];
 
 let team=Array.from({length:3},()=>Array(6).fill(null).map(es));
 let deathCounts=[0,0,0];
@@ -576,6 +578,7 @@ function updateSgCols(){
     // Normal: set grid columns to match player count
     sg.style.gridTemplateColumns=`repeat(${cols},1fr)`;
   }
+  applyColOrder();
 }
 
 function assignCols(){
@@ -620,6 +623,65 @@ function assignCols(){
   }
   if(typeof renderBadgeBars==='function') renderBadgeBars();
   updateSgCols();
+  if(myPI >= 0){
+    enableColDnD();
+  }
+}
+
+function applyColOrder(){
+  const sg = document.getElementById('sg');
+  if(!sg || _minimized) return;
+
+  colOrder.forEach((colId, index) => {
+    const el = document.getElementById('col-' + colId);
+    if(el){
+      el.style.order = index;
+    }
+  });
+}
+
+function enableColDnD(){
+  const cols = ['col-0','col-1','col-2'];
+
+  cols.forEach(id => {
+    const el = document.getElementById(id);
+    if(!el) return;
+
+    el.draggable = true;
+
+    el.addEventListener('dragstart', e => {
+      e.dataTransfer.setData('text/plain', id);
+    });
+
+    el.addEventListener('dragover', e => {
+      e.preventDefault();
+    });
+
+    el.addEventListener('drop', e => {
+      e.preventDefault();
+
+      const fromId = e.dataTransfer.getData('text/plain');
+      const toId = id;
+
+      if(fromId === toId) return;
+
+      swapColumns(fromId, toId);
+    });
+  });
+}
+
+function swapColumns(aId, bId){
+  const a = parseInt(aId.split('-')[1]);
+  const b = parseInt(bId.split('-')[1]);
+
+  const ia = colOrder.indexOf(a);
+  const ib = colOrder.indexOf(b);
+
+  [colOrder[ia], colOrder[ib]] = [colOrder[ib], colOrder[ia]];
+
+  applyColOrder();
+  assignCols();
+  updateSgCols();
 }
 
 function buildReadonlyGrid(){
@@ -635,6 +697,24 @@ function buildReadonlyGrid(){
     const pb=document.getElementById('peer-bar');
     pb.parentNode.insertBefore(rsg,pb.nextSibling);
   }
+  rsg.addEventListener('dragover', e => e.preventDefault());
+  rsg.addEventListener('drop', e => {
+    const from = parseInt(e.dataTransfer.getData('text/plain'));
+    const targetCol = e.target.closest('.scol');
+    if(!targetCol) return;
+
+    const toId = parseInt(targetCol.querySelector('.scol-lbl')?.id?.split('-')[2]);
+    if(isNaN(toId)) return;
+
+    const ia = peerOrder.indexOf(from);
+    const ib = peerOrder.indexOf(toId);
+
+    if(ia === -1 || ib === -1) return;
+
+    [peerOrder[ia], peerOrder[ib]] = [peerOrder[ib], peerOrder[ia]];
+
+    rebuildReadonlyFromOrder();
+  });
   // Don't wipe if videos already exist — just update labels
   const existingVideos=rsg.querySelectorAll('video[src-bound]');
   if(existingVideos.length>0) return; // grid already has active streams, don't destroy
@@ -678,6 +758,10 @@ function buildReadonlyGrid(){
     }
     col.appendChild(slot);
     rsg.appendChild(col);
+    col.draggable = true;
+    col.addEventListener('dragstart', e => {
+      e.dataTransfer.setData('text/plain', pi);
+    });
   });
 
   // Poll: mirror srcObjects from hidden slot-peer-N into visible ro-slot-N
@@ -738,6 +822,22 @@ function buildReadonlyGrid(){
       }
     });
   },300);
+}
+
+function rebuildReadonlyFromOrder(){
+  const rsg = document.getElementById('ro-sg');
+  if(!rsg) return;
+
+  const cols = [...rsg.querySelectorAll('.scol')];
+
+  peerOrder.forEach((pi, index) => {
+    const col = cols.find(c => 
+      c.querySelector('.scol-lbl')?.id === 'ro-lbl-' + pi
+    );
+    if(col){
+      col.style.order = index;
+    }
+  });
 }
 
 // ═══════════════════════════════════════════════
