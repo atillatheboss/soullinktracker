@@ -1365,66 +1365,7 @@ function renderTE(){
         const tb=document.createElement('button');
         tb.className='es-tot-btn '+(pk.alive?'alive':'dead');
         tb.textContent=pk.alive?'💀 Tot':'♻ Ok';
-        tb.onclick = (e) => {
-          e.stopPropagation();
-        
-          const newAlive = !pk.alive;
-        
-          socket.emit('set-alive', {
-            playerIndex: pi,
-            slotIndex: si,
-            alive: newAlive
-          });
-        
-          // ─────────────────────────────────────────────
-          // FIX: echte Referenz statt Snapshot-Logik
-          // ─────────────────────────────────────────────
-        
-          const current = team[pi]?.[si];
-        
-          const origin = current?.shinySwapOrigin;
-        
-          if(origin?.type === 'standalone') {
-        
-            const src = origin.originSlot;
-        
-            setPAt(src, {
-              ...getPAt(src),
-              alive: newAlive
-            });
-          }
-        
-          // ─────────────────────────────────────────────
-          // optional: Box-Link sync (falls Link in Box gespiegelt wird)
-          // ─────────────────────────────────────────────
-        
-          for(let b = 0; b < NB; b++) {
-            for(let sl = 0; sl < BS; sl++) {
-        
-              const bpk = box[pi]?.[b]?.[sl];
-              if(!bpk?.shinySwapRestoreTo) continue;
-        
-              const r = bpk.shinySwapRestoreTo;
-        
-              const match =
-                r.playerIndex === pi &&
-                r.location === 'team' &&
-                r.slotIndex === si;
-        
-              if(!match) continue;
-        
-              socket.emit('set-box-pokemon', {
-                playerIndex: pi,
-                boxNum: b,
-                slotNum: sl,
-                pokemon: {
-                  ...bpk,
-                  alive: newAlive
-                }
-              });
-            }
-          }
-        };
+        tb.onclick=(e)=>{e.stopPropagation();socket.emit('set-alive',{playerIndex:pi,slotIndex:si,alive:!pk.alive});};
         el.appendChild(tb);
         // Async: add evolve button if pokemon has next evolution
         (async()=>{
@@ -1514,6 +1455,7 @@ function clearSwapMeta(pk){
 
   delete p.shinySwapStandalone;
   delete p.shinySwapOrigin;
+  delete p.shinySwapOriginalPokemon;
   delete p.shinySwapOriginalLocation;
   delete p.shinySwapBoxPi;
   delete p.shinySwapBoxBn;
@@ -1667,30 +1609,32 @@ function collectRestorableCandidates(lk){
 function restoreOriginalPokemon(slot){
 
   const current = getPAt(slot);
-  const origin = current?.shinySwapOrigin;
 
-  if(!origin) return;
+  if(!current?.shinySwapOrigin) return;
 
-  if(origin.type === 'standalone'){
+  const origin = current.shinySwapOrigin;
 
-    const src = origin.originSlot;
+  const originalPokemon = structuredClone(origin.originalPokemon);
 
-    // Original einfach zurücksetzen
-    setPAt(src, {
-      ...getPAt(src),
-      shinySwapStandalone: false
+  // standalone shiny
+  if(origin.type==='standalone'){
+
+    socket.emit('set-box-pokemon',{
+      playerIndex:origin.box.playerIndex,
+      boxNum:origin.box.box,
+      slotNum:origin.box.slot,
+      pokemon:clearSwapMeta(current)
     });
 
-    setPAt(slot, {
-      pokeId: null,
-      name: null,
-      shiny: false,
-      alive: true
-    });
+    setPAt(slot, originalPokemon);
   }
 
-  if(origin.type === 'link'){
-    // link restore bleibt optional wie vorher
+  // original shiny link
+  else if(origin.type==='link'){
+
+    setPAt(origin.slot, clearSwapMeta(current));
+
+    setPAt(slot, originalPokemon);
   }
 }
 
@@ -1703,8 +1647,15 @@ function moveStandaloneShinyIntoLink(e){
   shiny.shinySwapStandalone = true;
 
   shiny.shinySwapOrigin = {
-    type: 'standalone',
-    originSlot: e.otherSlot
+    type:'standalone',
+
+    originalPokemon: structuredClone(original),
+
+    box:{
+      playerIndex:e.pi,
+      box:e.otherSlot.location.box,
+      slot:e.otherSlot.location.slot
+    }
   };
 
   setPAt(e.mySlot, shiny);
