@@ -142,7 +142,7 @@
     #sg.minimized #col-0 .ss{display:none}
     #sg.minimized #col-0 .scol-lbl{display:none}
     #sg.minimized #col-0 .tbar{flex:1;border-radius:12px;border:1px solid var(--bd)}
-    #sg.minimized #col-0 .dcbar{width:120px;flex-shrink:0;border-radius:12px;border:1px solid var(--bd);border-top:1px solid var(--bd)}
+    #sg.minimized #col-0 .dcbar{width:190px;flex-shrink:0;border-radius:12px;border:1px solid var(--bd);border-top:1px solid var(--bd)}
     /* Peer grid below: 2 equal cols */
     #sg.minimized .peers-row{display:grid;grid-template-columns:1fr 1fr;gap:11px;padding:0 18px}
     #sg.minimized .peers-row.one-peer{grid-template-columns:1fr}
