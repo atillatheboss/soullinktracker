@@ -437,17 +437,17 @@ select.inp{cursor:pointer}
 .rh-run-h{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--bd);background:var(--sf2);font-size:.74rem;font-family:'Space Mono',monospace;color:var(--txd);cursor:pointer;user-select:none}
 .rh-run-h:hover{background:rgba(124,106,255,.08)}
 .rh-run-h b{font-family:'Syne',sans-serif;color:var(--tx);font-size:.88rem}
-.rh-events{padding:12px 12px 14px;display:flex;flex-direction:column;gap:9px}
+.rh-events{padding:12px 12px 14px;display:flex;flex-direction:column;gap:0}
 .rh-events.collapsed{display:none}
 .rh-toggle{margin-left:auto;font-size:.84rem;color:var(--txd)}
-.rh-evt{display:flex;flex-direction:column;gap:8px;padding:9px 0}
-.rh-evt-inner{display:grid;grid-template-columns:74px 26px 1fr;gap:10px;align-items:flex-start}
+.rh-evt{display:flex;flex-direction:column;gap:0;padding:0;position:relative}
+.rh-evt-inner{display:grid;grid-template-columns:74px 26px 1fr;gap:10px;align-items:stretch;padding:9px 0;height:100%;--rh-evt-pad-y:9px}
 .rh-time{font-size:.67rem;font-family:'Space Mono',monospace;color:var(--a);font-weight:700;padding-top:3px}
-.rh-node{position:relative;min-height:20px}
-.rh-line{position:absolute;left:12px;top:-8px;bottom:-10px;width:2px;background:rgba(148,163,184,.28)}
-.rh-evt:first-child .rh-line{top:12px}
-.rh-evt:last-child .rh-line{bottom:10px}
-.rh-dot{position:relative;z-index:2;width:22px;height:22px;border-radius:999px;display:flex;align-items:center;justify-content:center;font-size:.72rem;border:1px solid var(--bd);background:var(--sf2)}
+.rh-node{position:relative;min-height:22px;align-self:stretch;height:100%}
+.rh-line{position:absolute;left:50%;transform:translateX(-50%);top:calc(-1*var(--rh-evt-pad-y));bottom:calc(-1*var(--rh-evt-pad-y));width:2px;background:rgba(148,163,184,.28)}
+.rh-evt:first-child .rh-line{top:50%}
+.rh-evt:last-child .rh-line{bottom:50%}
+.rh-dot{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:2;width:22px;height:22px;border-radius:999px;display:flex;align-items:center;justify-content:center;font-size:.72rem;border:1px solid var(--bd);background:var(--sf2)}
 .rh-type-catch{background:rgba(106,255,204,.14);border-color:rgba(106,255,204,.45)}
 .rh-type-link{background:rgba(124,106,255,.14);border-color:rgba(124,106,255,.45)}
 .rh-type-fail{background:rgba(239,68,68,.14);border-color:rgba(239,68,68,.45)}
