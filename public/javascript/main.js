@@ -558,71 +558,68 @@ function joinRoom(){ connectToRun(document.getElementById('ni').value.trim(), _p
 function updateSgCols(){
   const sg=document.getElementById('sg');if(!sg)return;
 
-  // Count active players (non-spectators)
   const activePeerCount=[...peers.values()].filter(p=>p.playerIndex>=0).length;
   const totalPlayers=myPI>=0?1+activePeerCount:activePeerCount;
   const cols=Math.max(1,Math.min(totalPlayers,3));
 
-  // Show/hide col-1 and col-2 based on player count
   const col1=document.getElementById('col-1');
   const col2=document.getElementById('col-2');
   if(col1) col1.style.display=cols>=2?'':'none';
   if(col2) col2.style.display=cols>=3?'':'none';
 
   if(_minimized){
-    // Minimized: own col is strip, peers fill the rest
     sg.style.gridTemplateColumns='';
     const pr=document.getElementById('peers-row');
     if(pr) pr.classList.toggle('one-peer',cols<=2);
   } else {
-    // Normal: set grid columns to match player count
     sg.style.gridTemplateColumns=`repeat(${cols},1fr)`;
   }
+
   applyColOrder();
 }
 
 function assignCols(){
   if(myPI>=0){
-    // Normal player: own stream in col-0, peers in col-1/2
     colAssign[myPI]=0; let c=1;
     for(let i=0;i<3;i++){if(i===myPI)continue;colAssign[i]=c++;}
-    // Show normal grid
     document.getElementById('sg').style.display='';
     document.getElementById('ro-sg')?.remove();
     document.getElementById('col-0').style.display='';
   } else {
-    // Readonly: hide the whole normal grid, show a dedicated readonly grid
     document.getElementById('sg').style.display='none';
     buildReadonlyGrid();
-    // colAssign for teambar rendering
+
     let c=0;
-    const sorted=[...peers.values()].filter(p=>p.playerIndex>=0).sort((a,b)=>a.playerIndex-b.playerIndex);
+    const sorted=[...peers.values()].filter(p=>p.playerIndex>=0)
+      .sort((a,b)=>a.playerIndex-b.playerIndex);
     sorted.forEach(p=>{colAssign[p.playerIndex]=c++;});
   }
+
   if(myPI>=0){
-    // col-0 label = own name
     const lbl0=document.getElementById('col-lbl-0');
     if(lbl0) lbl0.innerHTML=`<span class="pi-badge pi-${myPI}">${myPI+1}</span>${myName}`;
 
-    // col-1 and col-2: labels must match the peer whose video is in slot-peer-0 / slot-peer-1
-    // i.e. follow slotIndex order, not playerIndex order
     const peersBySlot=[...peers.values()]
       .filter(p=>p.playerIndex>=0)
       .sort((a,b)=>a.slotIndex-b.slotIndex);
+
     peersBySlot.forEach((p,i)=>{
-      const ci=i+1; // col-1, col-2
+      const ci=i+1;
       colAssign[p.playerIndex]=ci;
       const el=document.getElementById('col-lbl-'+ci);
       if(el) el.innerHTML=`<span class="pi-badge pi-${p.playerIndex}">${p.playerIndex+1}</span>${p.name}`;
     });
 
-    // Show col-2 only when 3 players are connected
-    const activePIs=new Set([myPI,...[...peers.values()].filter(p=>p.playerIndex>=0).map(p=>p.playerIndex)]);
+    const activePIs=new Set([myPI,...[...peers.values()]
+      .filter(p=>p.playerIndex>=0).map(p=>p.playerIndex)]);
+
     const col2=document.getElementById('col-2');
     if(col2) col2.style.display=activePIs.size>=3?'':'none';
   }
+
   if(typeof renderBadgeBars==='function') renderBadgeBars();
   updateSgCols();
+
   if(myPI >= 0){
     enableColDnD();
   }
@@ -651,6 +648,7 @@ function enableColDnD(){
 
     el.addEventListener('dragstart', e => {
       e.dataTransfer.setData('text/plain', id);
+      e.dataTransfer.effectAllowed = "move";
     });
 
     el.addEventListener('dragover', e => {
@@ -663,7 +661,7 @@ function enableColDnD(){
       const fromId = e.dataTransfer.getData('text/plain');
       const toId = id;
 
-      if(fromId === toId) return;
+      if(!fromId || fromId === toId) return;
 
       swapColumns(fromId, toId);
     });
@@ -677,6 +675,8 @@ function swapColumns(aId, bId){
   const ia = colOrder.indexOf(a);
   const ib = colOrder.indexOf(b);
 
+  if(ia === -1 || ib === -1) return;
+
   [colOrder[ia], colOrder[ib]] = [colOrder[ib], colOrder[ia]];
 
   applyColOrder();
@@ -684,11 +684,11 @@ function swapColumns(aId, bId){
   updateSgCols();
 }
 
+// ═══════════════════════════════════════════════
+// READONLY GRID
+// ═══════════════════════════════════════════════
 function buildReadonlyGrid(){
-  // Build or refresh a grid of up to 3 columns for readonly viewers.
-  // We create ro-col-0..2 with their own screen slots (ro-slot-0..2).
-  // regPeer still uses slot-peer-0/1/2 in the hidden original HTML —
-  // we MIRROR the video srcObject into ro-slot-N via a MutationObserver/interval.
+
   let rsg=document.getElementById('ro-sg');
   if(!rsg){
     rsg=document.createElement('div');
@@ -697,130 +697,119 @@ function buildReadonlyGrid(){
     const pb=document.getElementById('peer-bar');
     pb.parentNode.insertBefore(rsg,pb.nextSibling);
   }
-  rsg.addEventListener('dragover', e => e.preventDefault());
-  rsg.addEventListener('drop', e => {
-    const from = parseInt(e.dataTransfer.getData('text/plain'));
-    const targetCol = e.target.closest('.scol');
-    if(!targetCol) return;
 
-    const toId = parseInt(targetCol.querySelector('.scol-lbl')?.id?.split('-')[2]);
-    if(isNaN(toId)) return;
+  // 🔥 IMPORTANT: DnD nur 1x initialisieren
+  if(!rsg.dataset.dndInit){
+    rsg.dataset.dndInit = "1";
 
-    const ia = peerOrder.indexOf(from);
-    const ib = peerOrder.indexOf(toId);
+    rsg.addEventListener('dragover', e => e.preventDefault());
 
-    if(ia === -1 || ib === -1) return;
+    rsg.addEventListener('drop', e => {
+      e.preventDefault();
 
-    [peerOrder[ia], peerOrder[ib]] = [peerOrder[ib], peerOrder[ia]];
+      const from = parseInt(e.dataTransfer.getData('text/plain'));
+      if(isNaN(from)) return;
 
-    rebuildReadonlyFromOrder();
-  });
-  // Don't wipe if videos already exist — just update labels
+      const targetCol = e.target.closest('.scol');
+      if(!targetCol) return;
+
+      const lbl = targetCol.querySelector('.scol-lbl');
+      if(!lbl) return;
+
+      const toId = parseInt(lbl.id.split('-')[2]);
+      if(isNaN(toId)) return;
+
+      const ia = peerOrder.indexOf(from);
+      const ib = peerOrder.indexOf(toId);
+
+      if(ia === -1 || ib === -1) return;
+
+      [peerOrder[ia], peerOrder[ib]] = [peerOrder[ib], peerOrder[ia]];
+
+      rebuildReadonlyFromOrder();
+    });
+  }
+
   const existingVideos=rsg.querySelectorAll('video[src-bound]');
-  if(existingVideos.length>0) return; // grid already has active streams, don't destroy
-  rsg.innerHTML='';
-  const sorted=[...peers.values()].filter(p=>p.playerIndex>=0).sort((a,b)=>a.playerIndex-b.playerIndex);
+  if(existingVideos.length>0) return;
 
-  // Always show 3 placeholder slots (filled as peers connect)
+  rsg.innerHTML='';
+
+  const sorted=[...peers.values()]
+    .filter(p=>p.playerIndex>=0)
+    .sort((a,b)=>a.playerIndex-b.playerIndex);
+
   const activePIs=[0,1,2];
+
   activePIs.forEach((pi,i)=>{
     const peer=sorted.find(p=>p.playerIndex===pi);
-    const col=document.createElement('div');col.className='scol';
-    const lbl=document.createElement('div');lbl.className='scol-lbl';
+
+    const col=document.createElement('div');
+    col.className='scol';
+
+    const lbl=document.createElement('div');
+    lbl.className='scol-lbl';
     lbl.id='ro-lbl-'+pi;
-    if(peer){lbl.innerHTML=`<span class="pi-badge pi-${pi}">${pi+1}</span>${peer.name}`;}
-    else{lbl.innerHTML=`<span style="color:var(--txd);font-size:.72rem;font-family:Space Mono,monospace">Spieler ${pi+1}</span>`;}
+
+    lbl.innerHTML = peer
+      ? `<span class="pi-badge pi-${pi}">${pi+1}</span>${peer.name}`
+      : `<span style="color:var(--txd);font-size:.72rem;font-family:Space Mono,monospace">Spieler ${pi+1}</span>`;
+
     col.appendChild(lbl);
 
-    // Create a mirror screen slot
     const slot=document.createElement('div');
     slot.className='ss'+(peer?.sharing?' has-stream':'');
     slot.id='ro-slot-'+pi;
     slot.style.cssText='background:var(--sf);border:1px solid var(--bd);border-radius:12px;overflow:hidden;aspect-ratio:16/9;position:relative';
-    if(!peer){
-      slot.innerHTML='<div class="sse"><div style="font-size:1.8rem;opacity:.16">👤</div><span style="font-size:.7rem;font-family:Space Mono,monospace;color:var(--txd)">Spieler '+(pi+1)+'…</span></div>';
-    } else {
-      // Mirror the video from the original slot-peer-N
-      const srcSlot=document.getElementById('slot-peer-'+peer.slotIndex);
-      const srcVid=srcSlot?.querySelector('video');
-      if(srcVid&&srcVid.srcObject){
-        const v=document.createElement('video');v.autoplay=true;v.playsinline=true;v.muted=true;
-        v.style.cssText='position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000;z-index:5';
-        v.srcObject=srcVid.srcObject;v.play().catch(()=>{});
-        slot.appendChild(v);
-        slot.classList.add('has-stream');
-      } else {
-        slot.innerHTML=`<div class="sse"><div style="font-size:1.8rem;opacity:.16">👤</div><span style="font-size:.7rem;font-family:Space Mono,monospace;color:var(--txd)">${peer.name} (kein Stream)</span></div>`;
-      }
-      // Also mirror ice badge
-      const srcIce=srcSlot?.querySelector('.iceb');
-      if(srcIce){const ib=srcIce.cloneNode(true);slot.appendChild(ib);}
-    }
+
     col.appendChild(slot);
     rsg.appendChild(col);
+
     col.draggable = true;
     col.addEventListener('dragstart', e => {
       e.dataTransfer.setData('text/plain', pi);
     });
   });
 
-  // Poll: mirror srcObjects from hidden slot-peer-N into visible ro-slot-N
-  // Uses live peers map so it works even if peers join after buildReadonlyGrid runs
   clearInterval(window._roPoll);
   window._roPoll=setInterval(()=>{
-    if(myPI>=0){clearInterval(window._roPoll);return;} // no longer spectator
+
+    if(myPI>=0){clearInterval(window._roPoll);return;}
+
     peers.forEach(p=>{
       if(p.playerIndex<0)return;
+
       const srcSlot=document.getElementById('slot-peer-'+p.slotIndex);
       if(!srcSlot)return;
-      // Ensure ro-slot exists — create it if missing but NEVER destroy existing ones
-      let roSlot=document.getElementById('ro-slot-'+p.playerIndex);
-      if(!roSlot){
-        // Only rebuild if the grid container exists but slot is missing
-        const rsg=document.getElementById('ro-sg');
-        if(rsg){
-          const col=document.createElement('div');col.className='scol';
-          const lbl=document.createElement('div');lbl.className='scol-lbl';lbl.id='ro-lbl-'+p.playerIndex;
-          lbl.innerHTML=`<span class="pi-badge pi-${p.playerIndex}">${p.playerIndex+1}</span>${p.name}`;
-          roSlot=document.createElement('div');
-          roSlot.className='ss';roSlot.id='ro-slot-'+p.playerIndex;
-          roSlot.style.cssText='background:var(--sf);border:1px solid var(--bd);border-radius:12px;overflow:hidden;aspect-ratio:16/9;position:relative';
-          roSlot.innerHTML=`<div class="sse"><div style="font-size:1.8rem;opacity:.16">👤</div><span style="font-size:.7rem;font-family:Space Mono,monospace;color:var(--txd)">${p.name} (kein Stream)</span></div>`;
-          col.appendChild(lbl);col.appendChild(roSlot);rsg.appendChild(col);
-        } else {
-          buildReadonlyGrid(); roSlot=document.getElementById('ro-slot-'+p.playerIndex);
-        }
-      }
+
+      const roSlot=document.getElementById('ro-slot-'+p.playerIndex);
       if(!roSlot)return;
 
       const srcVid=srcSlot.querySelector('video');
       let roVid=roSlot.querySelector('video');
 
       if(srcVid?.srcObject){
+
         if(!roVid){
           roVid=document.createElement('video');
-          roVid.autoplay=true;roVid.playsinline=true;roVid.muted=true;
-          roVid.style.cssText='position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000;z-index:5';
-          // Clear placeholder, add video
-          roSlot.querySelectorAll('.sse').forEach(e=>e.remove());
+          roVid.autoplay=true;
+          roVid.playsinline=true;
+          roVid.muted=true;
+          roVid.style.cssText='position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000;';
+          roSlot.innerHTML='';
           roSlot.appendChild(roVid);
-          roSlot.classList.add('has-stream');
         }
-        if(roVid.srcObject!==srcVid.srcObject){
-          roVid.srcObject=srcVid.srcObject;
-          roVid.setAttribute('src-bound','1');
+
+        if(roVid.srcObject !== srcVid.srcObject){
+          roVid.srcObject = srcVid.srcObject;
           roVid.play().catch(()=>{});
         }
-        // Update label
-        const lbl2=document.getElementById('ro-lbl-'+p.playerIndex);
-        if(lbl2){lbl2.innerHTML=`<span class="pi-badge pi-${p.playerIndex}">${p.playerIndex+1}</span>${p.name}`;}
-      } else if(!srcVid?.srcObject && roSlot.classList.contains('has-stream')){
-        // Stream stopped
-        roVid?.remove();
-        roSlot.classList.remove('has-stream');
-        roSlot.innerHTML='<div class="sse"><div style="font-size:1.8rem;opacity:.16">👤</div><span style="font-size:.7rem;font-family:Space Mono,monospace;color:var(--txd)">'+p.name+' (kein Stream)</span></div>';
+
+      } else {
+        roSlot.innerHTML=`<div class="sse">kein Stream</div>`;
       }
     });
+
   },300);
 }
 
@@ -831,7 +820,7 @@ function rebuildReadonlyFromOrder(){
   const cols = [...rsg.querySelectorAll('.scol')];
 
   peerOrder.forEach((pi, index) => {
-    const col = cols.find(c => 
+    const col = cols.find(c =>
       c.querySelector('.scol-lbl')?.id === 'ro-lbl-' + pi
     );
     if(col){
