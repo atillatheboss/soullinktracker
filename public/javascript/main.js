@@ -1592,42 +1592,46 @@ function openShinySwapModal(linkId){
         // shiny originally came from standalone box
         // ─────────────────────────────────────────────
         if(shinyPk.shinySwapBoxPi !== undefined){
-      
-          const boxPi   = shinyPk.shinySwapBoxPi;
-          const boxBn   = shinyPk.shinySwapBoxBn;
-          const boxSlot = shinyPk.shinySwapBoxSlot;
-      
-          // Pokémon currently in Link2 goes into the box
-          const boxedTarget = {
-            ...targetPk,
-            shinySwapRestoreTo:{
-              location: shinySlot.location,
-              slotIndex: shinySlot.slotIndex,
-              playerIndex: shinySlot.playerIndex
-            }
-          };
-      
+
+          const originalPk = structuredClone(shinyPk.shinySwapOriginalPokemon);
+        
+          if(!originalPk){
+            toast('Original-Pokémon fehlt.',1);
+            return;
+          }
+        
+          // Find FREE box slot for Link2 pokemon
+          const freeSlot=findFreeBoxSlot(targetSlot.playerIndex);
+        
+          if(!freeSlot){
+            toast('Keine freie Box gefunden.',1);
+            return;
+          }
+        
+          // Put Link2 pokemon into FREE box slot
           socket.emit('set-box-pokemon',{
-            playerIndex: boxPi,
-            boxNum: boxBn,
-            slotNum: boxSlot,
-            pokemon: boxedTarget
+            playerIndex:targetSlot.playerIndex,
+            boxNum:freeSlot.box,
+            slotNum:freeSlot.slot,
+            pokemon:{
+              ...targetPk,
+              shinySwapRestoreTo:{
+                location:targetSlot.location,
+                slotIndex:targetSlot.slotIndex,
+                playerIndex:targetSlot.playerIndex
+              }
+            }
           });
-      
-          // restore original Pokémon back into Link1
-          const originalPk = {
-            pokeId: shinyPk.shinySwapOriginId,
-            name: shinyPk.shinySwapOriginName,
-            alive: true,
-            shiny: false
-          };
-      
-          setPAt(shinySlot, originalPk);
-      
-          // move shiny into Link2
-          setPAt(targetSlot, {
+        
+          // Restore original pokemon into Link1
+          setPAt(shinySlot,originalPk);
+        
+          // Move shiny into Link2
+          setPAt(targetSlot,{
             ...shinyPk
           });
+        
+        }
       
         } else {
       
@@ -1706,6 +1710,18 @@ function openShinySwapModal(linkId){
   document.getElementById('ssm').classList.add('open');
 }
 
+function findFreeBoxSlot(pi){
+  for(let b=0;b<NB;b++){
+    for(let sl=0;sl<BS;sl++){
+      const pk=box[pi]?.[b]?.[sl];
+      if(!pk?.pokeId && !pk?.missed){
+        return {box:b,slot:sl};
+      }
+    }
+  }
+  return null;
+}
+
 function buildSwapRow(e,isBlocked){
   const row=document.createElement('div');
   row.style.cssText=`display:flex;align-items:center;gap:8px;padding:8px;border-radius:9px;border:1px solid var(--bd);margin-bottom:6px;background:var(--sf2);${isBlocked?'opacity:.5':''}`;
@@ -1730,7 +1746,12 @@ function buildSwapRow(e,isBlocked){
       if(e.standalone){
         // Standalone box shiny: mark swap metadata for restore
         const boxLoc=e.otherSlot.location;
-        const newLinkPk=Object.assign({},e.otherPk,{shinySwapOriginId:e.myPk?.pokeId,shinySwapOriginName:e.myPk?.name,shinySwapBoxPi:e.pi,shinySwapBoxBn:boxLoc.box,shinySwapBoxSlot:boxLoc.slot});
+        const newLinkPk=Object.assign({},e.otherPk,{
+          shinySwapOriginalPokemon: structuredClone(e.myPk),
+          shinySwapBoxPi:e.pi,
+          shinySwapBoxBn:boxLoc.box,
+          shinySwapBoxSlot:boxLoc.slot
+        });
         const newBoxPk=Object.assign({},e.myPk||{},{shinySwapRestoreTo:{location:e.mySlot.location,slotIndex:e.mySlot.slotIndex,playerIndex:e.mySlot.playerIndex}});
         setPAt(e.mySlot,newLinkPk);
         socket.emit('set-box-pokemon',{playerIndex:e.pi,boxNum:boxLoc.box,slotNum:boxLoc.slot,pokemon:newBoxPk});
