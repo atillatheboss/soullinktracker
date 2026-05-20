@@ -1362,7 +1362,7 @@ function renderTE(){
       const ls=locStr('team',si);const lnk=isLinked(pi,ls),brk=isBroken(pi,ls);
       const el=document.createElement('div');
       const linkObj = getLinkForSlot(pi, si);
-      const linkColor = linkObj ? linkColorFn(linkObj) : null;
+      const linkColor = linkObj ? getLinkColor(linkObj) : null;
       el.className =
         'es'
         + (pk?.pokeId || pk?.missed ? ' ep' : '')
