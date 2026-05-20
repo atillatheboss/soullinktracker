@@ -5376,7 +5376,7 @@ function renderTypeTable() {
   const hr = thead.insertRow();
   const corner = document.createElement('th');
   corner.className = 'th-col th-row corner';
-  corner.innerHTML = `<span style="font-size:.55rem;color:var(--txd)">E${edition}<br>ATK→<br>DEF↓</span>`;
+  corner.innerHTML = `<span style="font-size:.55rem;color:var(--txd)">GEN${edition}<br>ATK→<br>DEF↓</span>`;
   hr.appendChild(corner);
 
   activeTypes.forEach((t, ci) => {
