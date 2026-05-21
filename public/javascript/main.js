@@ -36,6 +36,9 @@ let selectedEdition=null;
 const colAssign={};
 const STREAM_ORDER_KEY='soullink-stream-order-v1';
 let _streamDragState={containerId:null,colId:null,mode:null,lastBeforeId:null,lastHoverId:null,lastIntent:null};
+const _isTouchDevice=(typeof window!=='undefined')&&((window.matchMedia&&window.matchMedia('(pointer: coarse)').matches)||('ontouchstart' in window)||(navigator.maxTouchPoints>0));
+let _streamTouchSelected={containerId:null,colId:null};
+let _streamTouchSuppressUntil=0;
 const _streamEmptyDragImg=(()=>{
   const img=new Image();
   img.src='data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
@@ -695,6 +698,48 @@ function moveDraggedStreamCol(container,dragging,beforeEl){
   }
   animateStreamColReflow(cols,firstRects);
 }
+function clearStreamTouchSelectionUI(){
+  document.querySelectorAll('.scol.stream-touch-selected').forEach(el=>el.classList.remove('stream-touch-selected'));
+}
+function setStreamTouchSelection(container,col){
+  clearStreamTouchSelectionUI();
+  _streamTouchSelected={containerId:container?.id||null,colId:col?.id||null};
+  if(col)col.classList.add('stream-touch-selected');
+}
+function swapStreamCols(container,a,b){
+  if(!container||!a||!b||a===b||a.parentElement!==container||b.parentElement!==container)return;
+  const cols=getSortableStreamCols(container).filter(isVisibleStreamCol);
+  const firstRects=new Map(cols.map(el=>[el,el.getBoundingClientRect()]));
+  const ph=document.createElement('div');
+  container.insertBefore(ph,a);
+  container.insertBefore(a,b);
+  container.insertBefore(b,ph);
+  ph.remove();
+  animateStreamColReflow(cols,firstRects);
+}
+function onStreamTouchSwap(container,col){
+  if(!container||!col)return;
+  if(Date.now()<_streamTouchSuppressUntil)return;
+  const cur=_streamTouchSelected;
+  if(cur.colId===null||cur.containerId!==container.id){
+    setStreamTouchSelection(container,col);
+    toast('Stream ausgewählt – tippe Ziel-Stream',0);
+    return;
+  }
+  if(cur.colId===col.id){
+    setStreamTouchSelection(null,null);
+    return;
+  }
+  const source=document.getElementById(cur.colId);
+  if(!source||source.parentElement!==container){
+    setStreamTouchSelection(container,col);
+    return;
+  }
+  swapStreamCols(container,source,col);
+  saveStreamColOrder(container,container.dataset.streamDndMode||'players-full');
+  setStreamTouchSelection(null,null);
+  _streamTouchSuppressUntil=Date.now()+450;
+}
 
 function onStreamDragStart(e,container,mode,col){
   if(col.getAttribute('draggable')!=='true'){e.preventDefault();return;}
@@ -822,6 +867,38 @@ function initStreamDnDContainer(containerId,mode){
       col.addEventListener('dragover',col._streamDndHandlers.dragover);
       col.addEventListener('dragenter',col._streamDndHandlers.dragenter);
       col.addEventListener('dragend',col._streamDndHandlers.dragend);
+      if(_isTouchDevice){
+        let tmo=null,active=false,sx=0,sy=0;
+        const clearTouch=()=>{if(tmo){clearTimeout(tmo);tmo=null;}};
+        col.addEventListener('touchstart',e=>{
+          if(e.touches.length!==1)return;
+          active=true;
+          sx=e.touches[0].clientX;sy=e.touches[0].clientY;
+          clearTouch();
+          tmo=setTimeout(()=>{
+            if(!active)return;
+            const activeContainer=col.parentElement?.closest?.('[data-stream-dnd-mode]')||col.parentElement;
+            onStreamTouchSwap(activeContainer,col);
+            _streamTouchSuppressUntil=Date.now()+450;
+          },360);
+        },{passive:true});
+        col.addEventListener('touchmove',e=>{
+          if(!active||!tmo||e.touches.length!==1)return;
+          const dx=Math.abs(e.touches[0].clientX-sx),dy=Math.abs(e.touches[0].clientY-sy);
+          if(dx>8||dy>8)clearTouch();
+        },{passive:true});
+        col.addEventListener('touchend',()=>{active=false;clearTouch();},{passive:true});
+        col.addEventListener('touchcancel',()=>{active=false;clearTouch();},{passive:true});
+        col.addEventListener('click',e=>{
+          if(Date.now()<_streamTouchSuppressUntil){e.preventDefault();e.stopPropagation();return;}
+          const activeContainer=col.parentElement?.closest?.('[data-stream-dnd-mode]')||col.parentElement;
+          if(_streamTouchSelected.colId!==null&&_streamTouchSelected.containerId===activeContainer?.id){
+            e.preventDefault();
+            e.stopPropagation();
+            onStreamTouchSwap(activeContainer,col);
+          }
+        });
+      }
     }
   });
   if(!container._streamDndHandlers){
@@ -1672,6 +1749,40 @@ function getLinkForSlot(pi, si) {
 
 let _teamSlotDrag={playerIndex:null,slotIndex:null,previewPlayerIndex:null,previewSlotIndex:null};
 let _teamSlotDragSuppressUntil=0;
+let _teamSlotTouchSuppressUntil=0;
+let _teamSlotTouchSelected={playerIndex:null,slotIndex:null};
+function clearTeamSlotTouchSelectionUI(){
+  document.querySelectorAll('.es.team-slot-touch-selected').forEach(el=>el.classList.remove('team-slot-touch-selected'));
+}
+function selectTeamSlotTouchTarget(playerIndex,slotIndex){
+  clearTeamSlotTouchSelectionUI();
+  const el=document.querySelector(`.pb-g[data-player-index="${playerIndex}"] .es[data-team-slot-index="${slotIndex}"]`);
+  if(el)el.classList.add('team-slot-touch-selected');
+}
+function handleTeamSlotTouchSwap(playerIndex,slotIndex){
+  if(myReadonly)return;
+  const cur=_teamSlotTouchSelected;
+  if(cur.playerIndex===null||cur.slotIndex===null){
+    _teamSlotTouchSelected={playerIndex,slotIndex};
+    selectTeamSlotTouchTarget(playerIndex,slotIndex);
+    toast('Slot ausgewählt – tippe Ziel-Slot',0);
+    return;
+  }
+  if(cur.playerIndex===playerIndex&&cur.slotIndex===slotIndex){
+    _teamSlotTouchSelected={playerIndex:null,slotIndex:null};
+    clearTeamSlotTouchSelectionUI();
+    return;
+  }
+  if(cur.playerIndex!==playerIndex){
+    _teamSlotTouchSelected={playerIndex,slotIndex};
+    selectTeamSlotTouchTarget(playerIndex,slotIndex);
+    return;
+  }
+  socket.emit('swap-team-slots',{playerIndex,slotA:cur.slotIndex,slotB:slotIndex});
+  _teamSlotTouchSelected={playerIndex:null,slotIndex:null};
+  clearTeamSlotTouchSelectionUI();
+  _teamSlotTouchSuppressUntil=Date.now()+450;
+}
 function getTeamSlotElements(playerIndex=null){
   const sel=playerIndex===null
     ? '.pb-g .es[data-team-slot-index]'
@@ -1829,9 +1940,31 @@ function renderTE(){
         el.addEventListener('dragleave',e=>{if(!el.contains(e.relatedTarget))el.classList.remove('team-slot-drop-target');});
         el.addEventListener('drop',e=>onTeamSlotDrop(e,pi,si));
         el.addEventListener('dragend',onTeamSlotDragEnd);
+        if(_isTouchDevice){
+          let tmo=null,active=false,sx=0,sy=0;
+          const clearTouch=()=>{if(tmo){clearTimeout(tmo);tmo=null;}};
+          el.addEventListener('touchstart',e=>{
+            if(e.touches.length!==1)return;
+            active=true;
+            sx=e.touches[0].clientX;sy=e.touches[0].clientY;
+            clearTouch();
+            tmo=setTimeout(()=>{
+              if(!active)return;
+              handleTeamSlotTouchSwap(pi,si);
+              _teamSlotTouchSuppressUntil=Date.now()+450;
+            },340);
+          },{passive:true});
+          el.addEventListener('touchmove',e=>{
+            if(!active||!tmo||e.touches.length!==1)return;
+            const dx=Math.abs(e.touches[0].clientX-sx),dy=Math.abs(e.touches[0].clientY-sy);
+            if(dx>8||dy>8)clearTouch();
+          },{passive:true});
+          el.addEventListener('touchend',()=>{active=false;clearTouch();},{passive:true});
+          el.addEventListener('touchcancel',()=>{active=false;clearTouch();},{passive:true});
+        }
       }
       el.onclick=()=>{
-        if(Date.now()<_teamSlotDragSuppressUntil)return;
+        if(Date.now()<Math.max(_teamSlotDragSuppressUntil,_teamSlotTouchSuppressUntil))return;
         openPicker('team',pi,si);
       };
       if(pk?.pokeId&&!pk?.missed){
@@ -2407,6 +2540,21 @@ function setPAt(s,pk){
 }
 
 let _slDrag={linkId:null,category:null};
+let _slTouchSuppressUntil=0;
+let _slTouchSelected={linkId:null,category:null};
+function clearSoullinkTouchSelectionUI(){
+  document.querySelectorAll('.li.link-touch-selected').forEach(el=>el.classList.remove('link-touch-selected'));
+}
+function setSoullinkTouchSelection(linkId,category){
+  clearSoullinkTouchSelectionUI();
+  _slTouchSelected={linkId,category};
+  const el=document.querySelector(`.li[data-link-id="${linkId}"][data-link-category="${category}"]`);
+  if(el)el.classList.add('link-touch-selected');
+}
+function clearSoullinkTouchSelection(){
+  _slTouchSelected={linkId:null,category:null};
+  clearSoullinkTouchSelectionUI();
+}
 function getTeamLinkSlotIndex(lk){
   const idxs=(lk?.slots||[])
     .filter(s=>s.location==='team'&&Number.isInteger(s.slotIndex))
@@ -2532,6 +2680,24 @@ function onSoullinkLinkDrop(e,targetLinkId,targetCategory){
 function onSoullinkLinkDragEnd(){
   clearSoullinkDragUI();
   _slDrag={linkId:null,category:null};
+}
+function onSoullinkLinkTouchAction(linkId,category,targetLinkId,targetCategory){
+  if(myReadonly)return;
+  if(Date.now()<_slTouchSuppressUntil)return;
+  const cur=_slTouchSelected;
+  if(cur.linkId===null||cur.category===null){
+    setSoullinkTouchSelection(linkId,category);
+    toast('Link ausgewählt – tippe Ziel-Link',0);
+    return;
+  }
+  if(cur.linkId===linkId&&cur.category===category){
+    clearSoullinkTouchSelection();
+    return;
+  }
+  _slDrag={linkId:cur.linkId,category:cur.category};
+  onSoullinkLinkDrop({preventDefault:()=>{}},targetLinkId,targetCategory);
+  clearSoullinkTouchSelection();
+  _slTouchSuppressUntil=Date.now()+450;
 }
 
 // ── Link-Karte bauen ─────────────────────────────────────────────────────────
@@ -2662,6 +2828,8 @@ function renderLL(){
       body.appendChild(e);
     }else arr.forEach(lk=>{
       const item=buildLinkItem(lk);
+      item.dataset.linkId=String(lk.id);
+      item.dataset.linkCategory=secType;
       const canDrag=!myReadonly && (secType==='team'||secType==='boxed');
       if(canDrag){
         item.setAttribute('draggable','true');
@@ -2672,6 +2840,36 @@ function renderLL(){
         item.addEventListener('dragleave',e=>{ if(!item.contains(e.relatedTarget)) item.classList.remove('link-drop-target'); });
         item.addEventListener('drop',e=>onSoullinkLinkDrop(e,lk.id,secType));
         item.addEventListener('dragend',onSoullinkLinkDragEnd);
+        if(_isTouchDevice){
+          let tmo=null,active=false,sx=0,sy=0;
+          const clearTouch=()=>{if(tmo){clearTimeout(tmo);tmo=null;}};
+          item.addEventListener('touchstart',e=>{
+            if(e.touches.length!==1)return;
+            active=true;
+            sx=e.touches[0].clientX;sy=e.touches[0].clientY;
+            clearTouch();
+            tmo=setTimeout(()=>{
+              if(!active)return;
+              onSoullinkLinkTouchAction(lk.id,secType,lk.id,secType);
+              _slTouchSuppressUntil=Date.now()+450;
+            },360);
+          },{passive:true});
+          item.addEventListener('touchmove',e=>{
+            if(!active||!tmo||e.touches.length!==1)return;
+            const dx=Math.abs(e.touches[0].clientX-sx),dy=Math.abs(e.touches[0].clientY-sy);
+            if(dx>8||dy>8)clearTouch();
+          },{passive:true});
+          item.addEventListener('touchend',()=>{active=false;clearTouch();},{passive:true});
+          item.addEventListener('touchcancel',()=>{active=false;clearTouch();},{passive:true});
+          item.addEventListener('click',e=>{
+            if(Date.now()<_slTouchSuppressUntil){e.preventDefault();e.stopPropagation();return;}
+            if(_slTouchSelected.linkId!==null){
+              e.preventDefault();
+              e.stopPropagation();
+              onSoullinkLinkTouchAction(lk.id,secType,lk.id,secType);
+            }
+          });
+        }
       }else{
         item.setAttribute('draggable','false');
       }
@@ -2683,6 +2881,18 @@ function renderLL(){
       body.addEventListener('dragleave',e=>{ if(!body.contains(e.relatedTarget)) body.classList.remove('link-section-drop-target'); });
       body.addEventListener('drop',e=>onSoullinkTeamSectionDrop(e,teamLinks.length));
       body.addEventListener('dragend',onSoullinkLinkDragEnd);
+      if(_isTouchDevice){
+        body.addEventListener('click',e=>{
+          if(Date.now()<_slTouchSuppressUntil)return;
+          if(_slTouchSelected.linkId===null||_slTouchSelected.category!=='boxed')return;
+          const card=e.target?.closest?.('.li');
+          if(card)return; // target-card clicks handled there
+          _slDrag={linkId:_slTouchSelected.linkId,category:_slTouchSelected.category};
+          onSoullinkTeamSectionDrop({preventDefault:()=>{}},teamLinks.length);
+          clearSoullinkTouchSelection();
+          _slTouchSuppressUntil=Date.now()+450;
+        });
+      }
     }
     wrap.appendChild(body);
     return wrap;
@@ -2718,7 +2928,41 @@ function createLink(){
 let bv={pi:0,bn:0};
 let _boxDrag={playerIndex:null,boxNum:null,slotIndex:null,previewSlotIndex:null};
 let _boxDragSuppressUntil=0;
+let _boxTouchSuppressUntil=0;
+let _boxTouchSelected={playerIndex:null,boxNum:null,slotIndex:null};
 function initBV(){if(bv.pi<0||bv.pi>2)bv={pi:myPI>=0?myPI:0,bn:0};}
+function clearBoxTouchSelectionUI(){
+  document.querySelectorAll('.bs.box-slot-touch-selected').forEach(el=>el.classList.remove('box-slot-touch-selected'));
+}
+function selectBoxTouchTarget(playerIndex,boxNum,slotIndex){
+  clearBoxTouchSelectionUI();
+  const el=document.querySelector(`#bgrid .bs[data-player-index="${playerIndex}"][data-box-num="${boxNum}"][data-box-slot-index="${slotIndex}"]`);
+  if(el)el.classList.add('box-slot-touch-selected');
+}
+function handleBoxTouchSwap(playerIndex,boxNum,slotIndex){
+  if(myReadonly)return;
+  const cur=_boxTouchSelected;
+  if(cur.playerIndex===null||cur.boxNum===null||cur.slotIndex===null){
+    _boxTouchSelected={playerIndex,boxNum,slotIndex};
+    selectBoxTouchTarget(playerIndex,boxNum,slotIndex);
+    toast('Box-Slot ausgewählt – tippe Ziel-Slot',0);
+    return;
+  }
+  if(cur.playerIndex===playerIndex&&cur.boxNum===boxNum&&cur.slotIndex===slotIndex){
+    _boxTouchSelected={playerIndex:null,boxNum:null,slotIndex:null};
+    clearBoxTouchSelectionUI();
+    return;
+  }
+  if(cur.playerIndex!==playerIndex||cur.boxNum!==boxNum){
+    _boxTouchSelected={playerIndex,boxNum,slotIndex};
+    selectBoxTouchTarget(playerIndex,boxNum,slotIndex);
+    return;
+  }
+  socket.emit('swap-box-slots',{playerIndex,boxNum,slotA:cur.slotIndex,slotB:slotIndex});
+  _boxTouchSelected={playerIndex:null,boxNum:null,slotIndex:null};
+  clearBoxTouchSelectionUI();
+  _boxTouchSuppressUntil=Date.now()+450;
+}
 function getBoxSlotElements(playerIndex,boxNum){
   return [...document.querySelectorAll(`#bgrid .bs[data-player-index="${playerIndex}"][data-box-num="${boxNum}"][data-box-slot-index]`)];
 }
@@ -2928,6 +3172,28 @@ function renderBoxMain(){
       d.addEventListener('dragleave',e=>{if(!d.contains(e.relatedTarget))d.classList.remove('box-slot-drop-target');});
       d.addEventListener('drop',e=>onBoxSlotDrop(e,pi,bn,s));
       d.addEventListener('dragend',onBoxSlotDragEnd);
+      if(_isTouchDevice){
+        let tmo=null,active=false,sx=0,sy=0;
+        const clearTouch=()=>{if(tmo){clearTimeout(tmo);tmo=null;}};
+        d.addEventListener('touchstart',e=>{
+          if(e.touches.length!==1)return;
+          active=true;
+          sx=e.touches[0].clientX;sy=e.touches[0].clientY;
+          clearTouch();
+          tmo=setTimeout(()=>{
+            if(!active)return;
+            handleBoxTouchSwap(pi,bn,s);
+            _boxTouchSuppressUntil=Date.now()+450;
+          },340);
+        },{passive:true});
+        d.addEventListener('touchmove',e=>{
+          if(!active||!tmo||e.touches.length!==1)return;
+          const dx=Math.abs(e.touches[0].clientX-sx),dy=Math.abs(e.touches[0].clientY-sy);
+          if(dx>8||dy>8)clearTouch();
+        },{passive:true});
+        d.addEventListener('touchend',()=>{active=false;clearTouch();},{passive:true});
+        d.addEventListener('touchcancel',()=>{active=false;clearTouch();},{passive:true});
+      }
     }
     d.innerHTML=`<div class="bsn">${s+1}</div>`;
     if(lnk||brk)d.innerHTML+=`<div class="bsld${brk?' broken':lnk&&pk?.missed?' missed':''}"></div>`;
@@ -2942,7 +3208,7 @@ function renderBoxMain(){
 
     // --- Linksklick: öffnet weiterhin Picker/Modal ---
     d.addEventListener('click', ()=>{
-      if(Date.now()<_boxDragSuppressUntil)return;
+      if(Date.now()<Math.max(_boxDragSuppressUntil,_boxTouchSuppressUntil))return;
       if(pk?.pokeId || pk?.missed){
         //openBoxMenuModal(pi,bn,s); // hier sollte dein bestehendes Modal öffnen
       } else {
@@ -2954,7 +3220,7 @@ function renderBoxMain(){
     d.addEventListener('contextmenu', (ev) => {
       ev.preventDefault();
       ev.stopPropagation();
-      if(Date.now()<_boxDragSuppressUntil)return;
+      if(Date.now()<Math.max(_boxDragSuppressUntil,_boxTouchSuppressUntil))return;
       if (!pk) return;
 
       // Entferne altes Menü
