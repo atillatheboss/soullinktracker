@@ -197,6 +197,14 @@ function setPokeAt(R,pi,location,slotIndex,poke) {
   if (location==='team') { R.team[pi][slotIndex]=poke; return; }
   if (typeof location==='object') { if ('box' in location) { R.box[pi][location.box][location.slot]=poke; return; } if ('route' in location) { R.routes[pi][location.route]=poke; return; } }
 }
+function cloneLocation(location) {
+  if (location === 'team') return 'team';
+  if (location && typeof location === 'object') {
+    if ('box' in location) return { box: location.box, slot: location.slot };
+    if ('route' in location) return { route: location.route };
+  }
+  return location;
+}
 function normalizeRunState(state) {
   const base = emptyRunState();
   const R = (state && typeof state === 'object') ? state : {};
@@ -775,7 +783,118 @@ io.on('connection', (socket) => {
 
   socket.on('move-to-box',({playerIndex,slotIndex,boxNum,slotNum})=>{ if(isRO()) return; const c=ctx();if(!c)return; const R=c.R; const pk=R.team[playerIndex][slotIndex];if(!pk?.pokeId)return; R.box[playerIndex][boxNum][slotNum]={...pk};R.team[playerIndex][slotIndex]=emptySlot(); R.links.forEach(lk=>lk.slots.forEach(s=>{if(s.playerIndex===playerIndex&&s.location==='team'&&s.slotIndex===slotIndex){s.location={box:boxNum,slot:slotNum};delete s.slotIndex;}})); bcast(c);saveRun(myPP); });
   socket.on('move-to-team',({playerIndex,boxNum,slotNum,slotIndex})=>{ if(isRO()) return; const c=ctx();if(!c)return; const R=c.R; const pk=R.box[playerIndex][boxNum][slotNum];if(!pk?.pokeId)return; const dp=R.team[playerIndex][slotIndex]; if(dp?.pokeId){R.box[playerIndex][boxNum][slotNum]={...dp};R.links.forEach(lk=>lk.slots.forEach(s=>{if(s.playerIndex===playerIndex&&s.location==='team'&&s.slotIndex===slotIndex){s.location={box:boxNum,slot:slotNum};delete s.slotIndex;}}));}else{R.box[playerIndex][boxNum][slotNum]=null;} R.team[playerIndex][slotIndex]={...pk}; R.links.forEach(lk=>lk.slots.forEach(s=>{if(s.playerIndex===playerIndex&&typeof s.location==='object'&&s.location.box===boxNum&&s.location.slot===slotNum){s.location='team';s.slotIndex=slotIndex;}})); bcast(c);saveRun(myPP); });
+  socket.on('swap-box-slots',({playerIndex,boxNum,slotA,slotB})=>{ if(isRO()) return; const c=ctx();if(!c)return; const R=c.R;
+    const pi=parseInt(playerIndex),bn=parseInt(boxNum),a=parseInt(slotA),b=parseInt(slotB);
+    if(!Number.isInteger(pi)||pi<0||pi>2)return;
+    if(!Number.isInteger(bn)||bn<0||bn>=NUM_BOXES)return;
+    if(!Number.isInteger(a)||!Number.isInteger(b)||a<0||a>=BOX_SIZE||b<0||b>=BOX_SIZE||a===b)return;
+    const pa=R.box[pi]?.[bn]?.[a]||null;
+    const pb=R.box[pi]?.[bn]?.[b]||null;
+    R.box[pi][bn][a]=pb?{...pb}:null;
+    R.box[pi][bn][b]=pa?{...pa}:null;
+    R.links.forEach(lk=>lk.slots.forEach(s=>{
+      if(s.playerIndex!==pi)return;
+      if(!(typeof s.location==='object'&&s.location&&'box'in s.location))return;
+      if(s.location.box!==bn)return;
+      if(s.location.slot===a)s.location={box:bn,slot:b};
+      else if(s.location.slot===b)s.location={box:bn,slot:a};
+    }));
+    bcast(c);saveRun(myPP);
+  });
+  socket.on('swap-team-slots',({playerIndex,slotA,slotB})=>{ if(isRO()) return; const c=ctx();if(!c)return; const R=c.R;
+    const pi=parseInt(playerIndex),a=parseInt(slotA),b=parseInt(slotB);
+    if(!Number.isInteger(pi)||pi<0||pi>2)return;
+    if(!Number.isInteger(a)||!Number.isInteger(b)||a<0||a>5||b<0||b>5||a===b)return;
+
+    const findLinkAtTeamSlot=(playerIdx,slotIdx)=>
+      R.links.find(lk=>lk.slots.some(s=>s.playerIndex===playerIdx&&s.location==='team'&&s.slotIndex===slotIdx))||null;
+    const swapPlayerTeamSlots=(playerIdx,idxA,idxB)=>{
+      if(idxA===idxB)return;
+      const pa=R.team[playerIdx]?.[idxA], pb=R.team[playerIdx]?.[idxB];
+      R.team[playerIdx][idxA]=pb?{...pb}:emptySlot();
+      R.team[playerIdx][idxB]=pa?{...pa}:emptySlot();
+      R.links.forEach(lk=>lk.slots.forEach(s=>{
+        if(s.playerIndex!==playerIdx||s.location!=='team')return;
+        if(s.slotIndex===idxA)s.slotIndex=idxB;
+        else if(s.slotIndex===idxB)s.slotIndex=idxA;
+      }));
+    };
+    const moveLinkedSlotToIndex=(link,playerIdx,targetIdx)=>{
+      if(!link)return;
+      const slot=link.slots.find(s=>s.playerIndex===playerIdx&&s.location==='team');
+      if(!slot||slot.slotIndex===targetIdx)return;
+      swapPlayerTeamSlots(playerIdx,slot.slotIndex,targetIdx);
+    };
+
+    const linkA=findLinkAtTeamSlot(pi,a);
+    const linkB=findLinkAtTeamSlot(pi,b);
+
+    // 1) Always swap on dragged player.
+    swapPlayerTeamSlots(pi,a,b);
+
+    // 2) Keep linked partners aligned on other players:
+    //    link from slotA follows to slotB, link from slotB follows to slotA.
+    [0,1,2].forEach(otherPi=>{
+      if(otherPi===pi)return;
+      moveLinkedSlotToIndex(linkA,otherPi,b);
+      moveLinkedSlotToIndex(linkB,otherPi,a);
+    });
+
+    bcast(c);saveRun(myPP);
+  });
   socket.on('move-link-to-box',({linkId,boxTargets})=>{ if(isRO()) return; const c=ctx();if(!c)return; const R=c.R; const lk=R.links.find(l=>l.id===linkId);if(!lk)return; boxTargets.forEach(({playerIndex,boxNum,slotNum})=>{const slot=lk.slots.find(s=>s.playerIndex===playerIndex);if(!slot)return;const pk=getPokeAt(R,playerIndex,slot.location,slot.slotIndex);if(!pk?.pokeId)return;setPokeAt(R,playerIndex,slot.location,slot.slotIndex,slot.location==='team'?emptySlot():null);R.box[playerIndex][boxNum][slotNum]={...pk};slot.location={box:boxNum,slot:slotNum};delete slot.slotIndex;}); bcast(c);saveRun(myPP); });
+
+  // 1:1 swap two links that are currently in team slots (same player rows only).
+  socket.on('swap-links-team',({linkAId,linkBId})=>{ if(isRO()) return; const c=ctx();if(!c)return; const R=c.R;
+    const a=R.links.find(l=>l.id===linkAId), b=R.links.find(l=>l.id===linkBId);
+    if(!a||!b||a.id===b.id)return;
+    if(!a.slots.some(s=>s.location==='team')||!b.slots.some(s=>s.location==='team')) return;
+    let didSwap=false;
+    [0,1,2].forEach(pi=>{
+      const sa=a.slots.find(s=>s.playerIndex===pi);
+      const sb=b.slots.find(s=>s.playerIndex===pi);
+      if(!sa||!sb) return;
+      if(sa.location!=='team'||sb.location!=='team') return;
+      const ia=sa.slotIndex, ib=sb.slotIndex;
+      if(ia==null||ib==null||ia===ib) return;
+      const pa=R.team[pi]?.[ia], pb=R.team[pi]?.[ib];
+      R.team[pi][ia]=pb?{...pb}:emptySlot();
+      R.team[pi][ib]=pa?{...pa}:emptySlot();
+      sa.slotIndex=ib;
+      sb.slotIndex=ia;
+      didSwap=true;
+    });
+    if(!didSwap)return;
+    bcast(c);saveRun(myPP);
+  });
+
+  // 1:1 swap two links that are currently in box slots (same player rows only).
+  socket.on('swap-links-box',({linkAId,linkBId})=>{ if(isRO()) return; const c=ctx();if(!c)return; const R=c.R;
+    const a=R.links.find(l=>l.id===linkAId), b=R.links.find(l=>l.id===linkBId);
+    if(!a||!b||a.id===b.id)return;
+    const hasABox=a.slots.some(s=>typeof s.location==='object'&&s.location&&'box'in s.location);
+    const hasBBox=b.slots.some(s=>typeof s.location==='object'&&s.location&&'box'in s.location);
+    if(!hasABox||!hasBBox) return;
+    let didSwap=false;
+    [0,1,2].forEach(pi=>{
+      const sa=a.slots.find(s=>s.playerIndex===pi);
+      const sb=b.slots.find(s=>s.playerIndex===pi);
+      if(!sa||!sb) return;
+      if(!(typeof sa.location==='object'&&sa.location&&'box'in sa.location)) return;
+      if(!(typeof sb.location==='object'&&sb.location&&'box'in sb.location)) return;
+      const la=sa.location, lb=sb.location;
+      if(la.box===lb.box&&la.slot===lb.slot) return;
+      const pa=getPokeAt(R,pi,la,sa.slotIndex);
+      const pb=getPokeAt(R,pi,lb,sb.slotIndex);
+      R.box[pi][la.box][la.slot]=pb?{...pb}:null;
+      R.box[pi][lb.box][lb.slot]=pa?{...pa}:null;
+      sa.location=cloneLocation(lb); delete sa.slotIndex;
+      sb.location=cloneLocation(la); delete sb.slotIndex;
+      didSwap=true;
+    });
+    if(!didSwap)return;
+    bcast(c);saveRun(myPP);
+  });
 
   // Move a specific link's pokemon to team slots — only updates slots belonging to THIS link,
   // leaving other links untouched. Displaced pokemon are auto-boxed.
