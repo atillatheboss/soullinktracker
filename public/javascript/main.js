@@ -2716,7 +2716,102 @@ function createLink(){
 // BOX PAGE
 // ═══════════════════════════════════════════════
 let bv={pi:0,bn:0};
+let _boxDrag={playerIndex:null,boxNum:null,slotIndex:null,previewSlotIndex:null};
+let _boxDragSuppressUntil=0;
 function initBV(){if(bv.pi<0||bv.pi>2)bv={pi:myPI>=0?myPI:0,bn:0};}
+function getBoxSlotElements(playerIndex,boxNum){
+  return [...document.querySelectorAll(`#bgrid .bs[data-player-index="${playerIndex}"][data-box-num="${boxNum}"][data-box-slot-index]`)];
+}
+function animateBoxSlotReflow(els,firstRects){
+  els.forEach(el=>{
+    const prev=firstRects.get(el);if(!prev)return;
+    const now=el.getBoundingClientRect();
+    const dx=prev.left-now.left,dy=prev.top-now.top;
+    if(Math.abs(dx)<1&&Math.abs(dy)<1)return;
+    el.style.transition='none';
+    el.style.transform=`translate(${dx}px,${dy}px)`;
+    requestAnimationFrame(()=>{
+      el.style.transition='transform .2s cubic-bezier(.22,.9,.24,1)';
+      el.style.transform='';
+    });
+  });
+}
+function applyBoxSlotPreviewOrder(playerIndex,boxNum,sourceSlotIndex,targetSlotIndex){
+  const els=getBoxSlotElements(playerIndex,boxNum);
+  if(!els.length)return;
+  const firstRects=new Map(els.map(el=>[el,el.getBoundingClientRect()]));
+  els.forEach(el=>{
+    const idx=parseInt(el.dataset.boxSlotIndex,10);
+    if(!Number.isInteger(idx))return;
+    let order=idx;
+    if(idx===sourceSlotIndex)order=targetSlotIndex;
+    else if(idx===targetSlotIndex)order=sourceSlotIndex;
+    el.style.order=String(order);
+  });
+  animateBoxSlotReflow(els,firstRects);
+}
+function clearBoxSlotPreviewOrder(playerIndex=null,boxNum=null){
+  const sel=(playerIndex===null||boxNum===null)
+    ? '#bgrid .bs[data-box-slot-index]'
+    : `#bgrid .bs[data-player-index="${playerIndex}"][data-box-num="${boxNum}"][data-box-slot-index]`;
+  document.querySelectorAll(sel).forEach(el=>{
+    el.style.order='';
+    el.style.transform='';
+    el.style.transition='';
+  });
+}
+function clearBoxDragUI(){
+  document.querySelectorAll('.bs.box-slot-dragging').forEach(el=>el.classList.remove('box-slot-dragging'));
+  document.querySelectorAll('.bs.box-slot-drop-target').forEach(el=>el.classList.remove('box-slot-drop-target'));
+  clearBoxSlotPreviewOrder();
+}
+function onBoxSlotDragStart(e,playerIndex,boxNum,slotIndex,slotEl){
+  if(myReadonly){e.preventDefault();return;}
+  _boxDrag={playerIndex,boxNum,slotIndex,previewSlotIndex:null};
+  slotEl.classList.add('box-slot-dragging');
+  try{
+    e.dataTransfer.effectAllowed='move';
+    e.dataTransfer.setData('text/plain',`box:${playerIndex}:${boxNum}:${slotIndex}`);
+    e.dataTransfer.setDragImage(_streamEmptyDragImg,0,0);
+  }catch(_){}
+}
+function onBoxSlotDragOver(e,targetPlayerIndex,targetBoxNum,targetSlotIndex,slotEl){
+  const {playerIndex:sourcePlayerIndex,boxNum:sourceBoxNum,slotIndex:sourceSlotIndex,previewSlotIndex}=_boxDrag;
+  if(sourcePlayerIndex===null||sourceBoxNum===null||sourceSlotIndex===null)return;
+  if(sourcePlayerIndex!==targetPlayerIndex||sourceBoxNum!==targetBoxNum)return;
+  if(sourceSlotIndex===targetSlotIndex){
+    if(previewSlotIndex!==null){
+      e.preventDefault();
+      try{ if(e.dataTransfer) e.dataTransfer.dropEffect='move'; }catch(_){}
+    }
+    return;
+  }
+  e.preventDefault();
+  try{ if(e.dataTransfer) e.dataTransfer.dropEffect='move'; }catch(_){}
+  if(previewSlotIndex===targetSlotIndex)return;
+  document.querySelectorAll('.bs.box-slot-drop-target').forEach(el=>el.classList.remove('box-slot-drop-target'));
+  slotEl.classList.add('box-slot-drop-target');
+  clearBoxSlotPreviewOrder(targetPlayerIndex,targetBoxNum);
+  applyBoxSlotPreviewOrder(targetPlayerIndex,targetBoxNum,sourceSlotIndex,targetSlotIndex);
+  _boxDrag.previewSlotIndex=targetSlotIndex;
+}
+function onBoxSlotDrop(e,targetPlayerIndex,targetBoxNum,targetSlotIndex){
+  e.preventDefault();
+  const {playerIndex:sourcePlayerIndex,boxNum:sourceBoxNum,slotIndex:sourceSlotIndex,previewSlotIndex}=_boxDrag;
+  let resolvedTargetSlotIndex=targetSlotIndex;
+  if(resolvedTargetSlotIndex===sourceSlotIndex&&previewSlotIndex!==null)resolvedTargetSlotIndex=previewSlotIndex;
+  clearBoxDragUI();
+  if(sourcePlayerIndex===null||sourceBoxNum===null||sourceSlotIndex===null)return;
+  if(sourcePlayerIndex!==targetPlayerIndex||sourceBoxNum!==targetBoxNum)return;
+  if(sourceSlotIndex===resolvedTargetSlotIndex)return;
+  socket.emit('swap-box-slots',{playerIndex:sourcePlayerIndex,boxNum:sourceBoxNum,slotA:sourceSlotIndex,slotB:resolvedTargetSlotIndex});
+  _boxDragSuppressUntil=Date.now()+220;
+}
+function onBoxSlotDragEnd(){
+  clearBoxDragUI();
+  _boxDrag={playerIndex:null,boxNum:null,slotIndex:null,previewSlotIndex:null};
+  _boxDragSuppressUntil=Date.now()+220;
+}
 function renderGraveyard(){
   const sec=document.getElementById('graveyard-section');if(!sec)return;
   const deadLinks=links.filter(lk=>lk.broken);
@@ -2817,10 +2912,23 @@ function renderBoxMain(){
     const pk=box[pi][bn][s];
     const ls=`box:${bn}:${s}`;const lnk=isLinked(pi,ls),brk=isBroken(pi,ls);
     const d=document.createElement('div');
+    const canBoxSlotDrag=!myReadonly;
     const standaloneShiny=pk?.shiny&&pk?.pokeId&&!lnk&&!brk&&!pk?.missed;
     const isSwappedIn=!!pk?.shinySwapOriginId;
 
-    d.className='bs'+(pk?.pokeId||pk?.missed?' bp':'')+(pk?.shiny&&!standaloneShiny?' bsh':'')+(pk?.pokeId&&!pk.alive?' bd':'')+(lnk?' bl':'')+(brk?' bbr':'')+(pk?.missedInitiator?' bm-initiator':pk?.missed?' bm':'')+(standaloneShiny?' bsh-standalone':'')+(isSwappedIn?' bsh-swapped':'');
+    d.className='bs'+(pk?.pokeId||pk?.missed?' bp':'')+(pk?.shiny&&!standaloneShiny?' bsh':'')+(pk?.pokeId&&!pk.alive?' bd':'')+(lnk?' bl':'')+(brk?' bbr':'')+(pk?.missedInitiator?' bm-initiator':pk?.missed?' bm':'')+(standaloneShiny?' bsh-standalone':'')+(isSwappedIn?' bsh-swapped':'')+(canBoxSlotDrag?' box-slot-draggable':'');
+    d.dataset.playerIndex=String(pi);
+    d.dataset.boxNum=String(bn);
+    d.dataset.boxSlotIndex=String(s);
+    d.setAttribute('draggable',canBoxSlotDrag?'true':'false');
+    if(canBoxSlotDrag){
+      d.addEventListener('dragstart',e=>onBoxSlotDragStart(e,pi,bn,s,d));
+      d.addEventListener('dragover',e=>onBoxSlotDragOver(e,pi,bn,s,d));
+      d.addEventListener('dragenter',e=>e.preventDefault());
+      d.addEventListener('dragleave',e=>{if(!d.contains(e.relatedTarget))d.classList.remove('box-slot-drop-target');});
+      d.addEventListener('drop',e=>onBoxSlotDrop(e,pi,bn,s));
+      d.addEventListener('dragend',onBoxSlotDragEnd);
+    }
     d.innerHTML=`<div class="bsn">${s+1}</div>`;
     if(lnk||brk)d.innerHTML+=`<div class="bsld${brk?' broken':lnk&&pk?.missed?' missed':''}"></div>`;
     if(pk?.shiny)d.innerHTML+=`<div class="bssh">✨</div>`;
@@ -2834,6 +2942,7 @@ function renderBoxMain(){
 
     // --- Linksklick: öffnet weiterhin Picker/Modal ---
     d.addEventListener('click', ()=>{
+      if(Date.now()<_boxDragSuppressUntil)return;
       if(pk?.pokeId || pk?.missed){
         //openBoxMenuModal(pi,bn,s); // hier sollte dein bestehendes Modal öffnen
       } else {
@@ -2845,6 +2954,7 @@ function renderBoxMain(){
     d.addEventListener('contextmenu', (ev) => {
       ev.preventDefault();
       ev.stopPropagation();
+      if(Date.now()<_boxDragSuppressUntil)return;
       if (!pk) return;
 
       // Entferne altes Menü
