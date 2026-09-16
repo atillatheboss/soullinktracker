@@ -3,7 +3,8 @@
 // ═══════════════════════════════════════════════
 const ICE=[{urls:'stun:stun.l.google.com:19302'}];
 const NB=8,BS=30;
-const PC=[['#7c6aff','rgba(124,106,255,.14)'],['#ff6a8a','rgba(255,106,138,.14)'],['#6affcc','rgba(106,255,204,.14)']];
+const PC=[['#41d6c3','rgba(65,214,195,.14)'],['#ff6f8f','rgba(255,111,143,.14)'],['#f6c945','rgba(246,201,69,.14)']];
+const API_TIMEOUT_MS=12000;
 
 let socket,myId,myName,myPI,mySocketId="",myPP=null;
 let localStream=null,isSharing=false;
@@ -24,6 +25,36 @@ const collapsedRunHistory = new Set();
 let _timerInterval=null;
 const peers=new Map();
 const slotUsed=[false,false];
+
+function byId(id){return document.getElementById(id);}
+function setBtnBusy(id,busy,label){
+  const btn=byId(id);
+  if(!btn)return;
+  if(!btn.dataset.idleText)btn.dataset.idleText=btn.textContent;
+  btn.disabled=!!busy;
+  btn.setAttribute('aria-busy',busy?'true':'false');
+  btn.textContent=busy?(label||'Bitte warten…'):btn.dataset.idleText;
+}
+async function fetchJson(url, opts={}, timeout=API_TIMEOUT_MS){
+  const ctrl=new AbortController();
+  const t=setTimeout(()=>ctrl.abort(),timeout);
+  try{
+    const r=await fetch(url,{...opts,signal:ctrl.signal});
+    const ct=r.headers.get('content-type')||'';
+    const data=ct.includes('application/json')?await r.json().catch(()=>({})):await r.text();
+    if(!r.ok){
+      const msg=typeof data==='object'&&data?data.error:null;
+      const err=new Error(msg||('HTTP '+r.status));
+      err.status=r.status;err.data=data;throw err;
+    }
+    return data;
+  }catch(e){
+    if(e.name==='AbortError')throw new Error('Zeitüberschreitung. Bitte erneut versuchen.');
+    throw e;
+  }finally{
+    clearTimeout(t);
+  }
+}
 
 let team=Array.from({length:3},()=>Array(6).fill(null).map(es));
 let deathCounts=[0,0,0];
@@ -114,34 +145,47 @@ function setJoinPasswordVisibility(visible){
 async function loadActiveRuns(){
   const list=document.getElementById('active-runs-list');
   if(!list) return;
+  const loadId=(loadActiveRuns._id=(loadActiveRuns._id||0)+1);
+  list.innerHTML='<div class="active-runs-empty login-loading">Wird geladen…</div>';
   try{
-    const r=await fetch('/api/runs/active');
-    const runs=await r.json();
+    const runs=await fetchJson('/api/runs/active');
+    if(loadId!==loadActiveRuns._id)return;
     _runProtectionByPassphrase.clear();
     if(!runs.length){
       list.innerHTML='<div class="active-runs-empty">Keine Runs vorhanden</div>';
       return;
     }
-    list.innerHTML=runs.map(run=>{
+    list.innerHTML='';
+    runs.forEach(run=>{
       _runProtectionByPassphrase.set(run.passphrase, !!run.isProtected);
       const hasPlayers=run.playerCount>0||run.spectatorCount>0;
-      const dot=hasPlayers
-        ?'<div class="active-run-dot"></div>'
-        :'<div style="width:7px;height:7px;border-radius:50%;background:var(--bd);flex-shrink:0"></div>';
-      const lock=run.isProtected?' 🔒':'';
+      const item=document.createElement('button');
+      item.type='button';
+      item.className='active-run-item';
+      item.dataset.passphrase=run.passphrase;
+      item.onclick=()=>selectActiveRun(run.passphrase);
+      const left=document.createElement('div');
+      left.style.cssText='display:flex;align-items:center;gap:8px;min-width:0';
+      const dot=document.createElement('div');
+      dot.className=hasPlayers?'active-run-dot':'';
+      if(!hasPlayers)dot.style.cssText='width:7px;height:7px;border-radius:50%;background:var(--bd);flex-shrink:0';
+      const name=document.createElement('div');
+      name.className='active-run-item-name';
+      if(!hasPlayers)name.style.color='var(--txm)';
+      name.textContent=run.name+(run.isProtected?' 🔒':'');
+      left.append(dot,name);
       const playerLabel=hasPlayers
         ?(run.playerCount===1?'1 Spieler':`${run.playerCount} Spieler`)+(run.spectatorCount>0?` · ${run.spectatorCount} 👁`:'')
         :'Niemand online';
-      return `<div class="active-run-item" data-passphrase="${run.passphrase.replace(/"/g,'&quot;')}" onclick="selectActiveRun('${run.passphrase.replace(/'/g,"\\'")}')">
-        <div style="display:flex;align-items:center;gap:8px;min-width:0">
-          ${dot}
-          <div class="active-run-item-name" style="${hasPlayers?'':'color:var(--txm)'}">${run.name.replace(/</g,'&lt;')}${lock}</div>
-        </div>
-        <div class="active-run-item-badge" style="${hasPlayers?'':'color:var(--bd2)'}">${playerLabel}</div>
-      </div>`;
-    }).join('');
+      const badge=document.createElement('div');
+      badge.className='active-run-item-badge';
+      if(!hasPlayers)badge.style.color='var(--bd2)';
+      badge.textContent=playerLabel;
+      item.append(left,badge);
+      list.appendChild(item);
+    });
   }catch(e){
-    list.innerHTML='<div class="active-runs-empty">Fehler beim Laden</div>';
+    if(loadId===loadActiveRuns._id)list.innerHTML='<div class="active-runs-empty">Fehler beim Laden</div>';
   }
 }
 
@@ -197,15 +241,16 @@ async function verifyAdmin(){
   const pw=document.getElementById('admin-pw-input').value;
   const errEl=document.getElementById('admin-login-error');
   errEl.style.display='none';
+  setBtnBusy('admin-login-btn',true,'Prüfe…');
   try{
-    const r=await fetch('/api/admin/verify',{method:'POST',headers:{'Content-Type':'application/json','x-admin-password':pw},body:JSON.stringify({adminPassword:pw})});
-    if(!r.ok){errEl.textContent='Falsches Passwort.';errEl.style.display='block';return;}
+    await fetchJson('/api/admin/verify',{method:'POST',headers:{'Content-Type':'application/json','x-admin-password':pw},body:JSON.stringify({adminPassword:pw})});
     _adminPw=pw;
     document.getElementById('admin-pw-input').value='';
     document.getElementById('admin-login-section').style.display='none';
     document.getElementById('admin-runs-section').style.display='';
     loadAdminRuns();
-  }catch(e){errEl.textContent='Verbindungsfehler.';errEl.style.display='block';}
+  }catch(e){errEl.textContent=e.status===401?'Falsches Passwort.':(e.message||'Verbindungsfehler.');errEl.style.display='block';}
+  finally{setBtnBusy('admin-login-btn',false);}
 }
 
 async function loadAdminRuns(){
@@ -213,8 +258,7 @@ async function loadAdminRuns(){
   const countEl=document.getElementById('admin-run-count');
   list.innerHTML='<div style="color:var(--txd);font-size:.75rem;text-align:center;padding:12px;font-family:\'Space Mono\',monospace">Wird geladen…</div>';
   try{
-    const r=await fetch('/api/runs/active');
-    const runs=await r.json();
+    const runs=await fetchJson('/api/runs/active');
     countEl.textContent=runs.length;
     if(!runs.length){
       list.innerHTML='<div style="color:var(--txd);font-size:.75rem;text-align:center;padding:16px;font-family:\'Space Mono\',monospace">Keine Runs vorhanden</div>';
@@ -256,23 +300,17 @@ async function manageAdminRunPassword(passphrase, isProtected, btn){
       runPassword=String(pw).trim();
       if(!runPassword){toast('Passwort darf nicht leer sein',1);btn.disabled=false;btn.textContent=oldTxt;return;}
     }
-    const r=await fetch(`/api/admin/runs/${encodeURIComponent(passphrase)}/password`,{
+    const d=await fetchJson(`/api/admin/runs/${encodeURIComponent(passphrase)}/password`,{
       method:'POST',
       headers:{'Content-Type':'application/json','x-admin-password':_adminPw},
       body:JSON.stringify({runPassword})
     });
-    const d=await r.json().catch(()=>({}));
-    if(!r.ok){
-      if(r.status===401){_adminPw=null;closeAdmin();return;}
-      toast(d.error||'Fehler beim Passwort-Update',1);
-      btn.disabled=false;btn.textContent=oldTxt;
-      return;
-    }
     toast(d.isProtected?'Run geschützt':'Passwortschutz aufgehoben');
     loadAdminRuns();
     if(document.getElementById('login-join')?.style.display!=='none') loadActiveRuns();
   }catch(e){
-    toast('Verbindungsfehler',1);
+    if(e.status===401){_adminPw=null;closeAdmin();return;}
+    toast(e.message||'Verbindungsfehler',1);
     btn.disabled=false;btn.textContent=oldTxt;
   }
 }
@@ -281,12 +319,7 @@ async function deleteAdminRun(passphrase, btn){
   if(!confirm(`Run "${passphrase}" wirklich löschen?`)) return;
   btn.disabled=true; btn.textContent='…';
   try{
-    const r=await fetch(`/api/admin/runs/${encodeURIComponent(passphrase)}`,{method:'DELETE',headers:{'x-admin-password':_adminPw}});
-    if(!r.ok){
-      if(r.status===401){_adminPw=null;closeAdmin();return;}
-      btn.disabled=false; btn.textContent='🗑 Löschen';
-      toast('Fehler beim Löschen'); return;
-    }
+    await fetchJson(`/api/admin/runs/${encodeURIComponent(passphrase)}`,{method:'DELETE',headers:{'x-admin-password':_adminPw}});
     const row=document.getElementById(`admin-row-${CSS.escape(passphrase)}`);
     if(row){row.style.transition='opacity .3s';row.style.opacity='0';setTimeout(()=>row.remove(),300);}
     const countEl=document.getElementById('admin-run-count');
@@ -294,7 +327,10 @@ async function deleteAdminRun(passphrase, btn){
     // Refresh active runs list on login screen if visible
     if(document.getElementById('login-join')?.style.display!=='none') loadActiveRuns();
     toast('Run gelöscht');
-  }catch(e){btn.disabled=false;btn.textContent='🗑 Löschen';toast('Verbindungsfehler');}
+  }catch(e){
+    if(e.status===401){_adminPw=null;closeAdmin();return;}
+    btn.disabled=false;btn.textContent='🗑 Löschen';toast(e.message||'Verbindungsfehler',1);
+  }
 }
 
 function showLoginError(msg){
@@ -309,17 +345,17 @@ async function createRun(){
   if(!name){showLoginError('Bitte deinen Namen eingeben.');return;}
   if(!runName){showLoginError('Bitte einen Run-Namen eingeben.');return;}
   if(passwordEnabled&&!runPassword.trim()){showLoginError('Bitte ein Run-Passwort eingeben.');return;}
+  setBtnBusy('create-run-btn',true,'Erstelle…');
   try{
-    const r=await fetch('/api/runs/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:runName,passwordEnabled,runPassword})});
-    const d=await r.json();
-    if(!r.ok){showLoginError(d.error||'Fehler');return;}
+    const d=await fetchJson('/api/runs/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:runName,passwordEnabled,runPassword})});
     _pendingPassphrase=d.passphrase;
     _pendingRunPassword=passwordEnabled?runPassword:'';
     document.getElementById('login-passphrase-val').textContent=d.passphrase;
     document.getElementById('login-passphrase-box').style.display='block';
     document.getElementById('login-create').style.display='none';
     document.getElementById('login-error').style.display='none';
-  }catch(e){showLoginError('Verbindungsfehler.');}
+  }catch(e){showLoginError(e.message||'Verbindungsfehler.');}
+  finally{setBtnBusy('create-run-btn',false);}
 }
 
 let _selectedSlot = 0; // default: Spieler 1
@@ -348,9 +384,7 @@ function selectCreateSlot(idx) {
 
 async function loadSlots(pp) {
   try {
-    const r = await fetch('/api/runs/slots/'+encodeURIComponent(pp));
-    if (!r.ok) { setJoinPasswordVisibility(false); return; }
-    const {usedSlots,isProtected} = await r.json();
+    const {usedSlots,isProtected} = await fetchJson('/api/runs/slots/'+encodeURIComponent(pp));
     setJoinPasswordVisibility(!!isProtected);
     const section = document.getElementById('slot-picker-section');
     if (section) section.style.display = '';
@@ -376,7 +410,9 @@ async function loadSlots(pp) {
     } else if (_selectedSlot >= 0 && usedSlots.includes(_selectedSlot)) {
       selectSlot([0,1,2].find(x => !usedSlots.includes(x)) ?? -1);
     }
-  } catch(e) {}
+  } catch(e) {
+    setJoinPasswordVisibility(false);
+  }
 }
 
 function onPassphraseInput(val) {
@@ -398,7 +434,16 @@ function onPassphraseInput(val) {
 }
 
 function copyPassphrase(){
-  navigator.clipboard?.writeText(_pendingPassphrase).then(()=>toast('Passphrase kopiert!')).catch(()=>{});
+  const txt=_pendingPassphrase||document.getElementById('login-passphrase-val')?.textContent||'';
+  if(!txt)return;
+  if(navigator.clipboard?.writeText){
+    navigator.clipboard.writeText(txt).then(()=>toast('Passphrase kopiert!')).catch(()=>toast('Kopieren nicht erlaubt.',1));
+  } else {
+    const ta=document.createElement('textarea');
+    ta.value=txt;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();
+    try{document.execCommand('copy');toast('Passphrase kopiert!');}catch(e){toast('Kopieren nicht erlaubt.',1);}
+    ta.remove();
+  }
 }
 
 function enterRunAfterCreate(){
@@ -413,19 +458,35 @@ async function joinRun(){
   const runPassword=document.getElementById('join-password-input')?.value||'';
   if(!name){showLoginError('Bitte deinen Namen eingeben.');return;}
   if(!pp){showLoginError('Bitte eine Passphrase eingeben.');return;}
+  setBtnBusy('join-run-btn',true,'Verbinde…');
   try{
-    const r=await fetch('/api/runs/join',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({passphrase:pp,runPassword})});
-    const d=await r.json();
-    if(!r.ok){showLoginError(d.error||'Run nicht gefunden.');return;}
+    await fetchJson('/api/runs/join',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({passphrase:pp,runPassword})});
     connectToRun(name,pp, _selectedSlot, runPassword);
-  }catch(e){showLoginError('Verbindungsfehler.');}
+  }catch(e){showLoginError(e.message||'Verbindungsfehler.');setBtnBusy('join-run-btn',false);}
 }
 
 function connectToRun(name, passphrase, requestedPlayerIndex, joinRunPassword=''){
-  myName=name; myPP=passphrase; socket=io();
-  socket.on('run-not-found',()=>{ showLoginError('Run nicht gefunden.'); socket.disconnect(); });
-  socket.on('run-auth-failed',()=>{ showLoginError('Falsches Run-Passwort.'); socket.disconnect(); });
+  if(socket?.connected)socket.disconnect();
+  myName=name; myPP=passphrase;
+  socket=io({timeout:8000,reconnectionAttempts:5,reconnectionDelay:700,reconnectionDelayMax:2500});
+  const releaseJoinButton=()=>setBtnBusy('join-run-btn',false);
+  socket.on('connect_error',(e)=>{
+    releaseJoinButton();
+    const msg='Socket-Verbindung fehlgeschlagen.';
+    if(document.getElementById('js')?.style.display!=='none')showLoginError(msg);
+    else toast(msg,1);
+    dlog('socket connect_error:'+(e?.message||e),'e');
+  });
+  socket.on('disconnect',(reason)=>{
+    updateSBar();
+    if(reason!=='io client disconnect'&&document.getElementById('js')?.style.display==='none')toast('Verbindung getrennt: '+reason,1);
+  });
+  socket.io.on('reconnect_attempt',()=>{ if(document.getElementById('js')?.style.display==='none')toast('Verbinde erneut…'); });
+  socket.on('run-deleted',()=>{toast('Dieser Run wurde gelöscht.',1);setTimeout(backToLogin,900);});
+  socket.on('run-not-found',()=>{ releaseJoinButton(); showLoginError('Run nicht gefunden.'); socket.disconnect(); });
+  socket.on('run-auth-failed',()=>{ releaseJoinButton(); showLoginError('Falsches Run-Passwort.'); socket.disconnect(); });
   socket.on('joined',({socketId,peers:ex,playerIndex,readonly,team:t,box:b,links:l,routes:r,selectedEdition:ed,deathCounts:dc,totalDeathCounts:tdc,badgeStates:bs,levelCaps:lc,runStatus:rs,runCounter:rc,runStartedAt:rsa,runElapsed:rel,runHistory:rh,runPassword:rp,rulesText:rt,rulesTitle:rttl,rulesetId:rsid,trainerCapsText:tct})=>{
+    releaseJoinButton();
     myId=socketId; mySocketId=socketId; myPI=playerIndex;team=t;box=b;links=l;routes=r||[{},{},{}];selectedEdition=ed;
     if(dc)deathCounts=dc;
     if(tdc)totalDeathCounts=tdc;
@@ -2273,7 +2334,7 @@ function renderBoxMain(){
       menu.style.transition = 'transform 0.15s ease, opacity 0.15s ease';
 
       // Menüoptionen vorbereiten
-      const standalone = isStandaloneShiny(pi, bn, s);
+      const standalone = isStandaloneBoxShiny(pi, bn, s);
       const canRestore = !!pk.shinySwapRestoreTo;
 
       const options = [
@@ -2333,7 +2394,7 @@ function renderBoxMain(){
     grid.appendChild(d);
   }
 }
-function isStandaloneShiny(pi,bn,slotNum){
+function isStandaloneBoxShiny(pi,bn,slotNum){
   const pk=box[pi]?.[bn]?.[slotNum];
   if(!pk?.shiny||!pk?.pokeId||pk?.missed) return false;
   const loc='box:'+bn+':'+slotNum;
@@ -2412,7 +2473,7 @@ function restoreShinySwap(pi,bn,slotNum){
 function openBoxMenu(pi,bn,slotNum){
   const pk=box[pi][bn][slotNum];if(!pk)return;
   const nm=pk.missed?'nicht gefangen':(pkName(pk)||'?');
-  const standalone=isStandaloneShiny(pi,bn,slotNum);
+  const standalone=isStandaloneBoxShiny(pi,bn,slotNum);
   const canRestore=!!pk.shinySwapRestoreTo;
   const opts=['[1] Bearbeiten','[2] Status: '+(pk.alive?'→ Tot':'→ Lebendig'),'[3] → Team verschieben','[4] Slot leeren'];
   if(standalone) opts.push('[5] ✨ Shiny-Tausch mit Link');

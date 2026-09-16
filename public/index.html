@@ -33,7 +33,7 @@
         <div class="lbl" style="margin-top:7px">Run-Passwort</div>
         <input type="password" id="create-password-input" class="inp" placeholder="Passwort für diesen Run" maxlength="80" style="margin-bottom:0"/>
       </div>
-      <button class="btn btn-p" style="width:100%;margin-top:10px" onclick="createRun()">Run erstellen →</button>
+      <button class="btn btn-p" id="create-run-btn" style="width:100%;margin-top:10px" onclick="createRun()">Run erstellen →</button>
     </div>
     <div id="login-join" style="display:none">
       <!-- Aktive Runs -->
@@ -61,7 +61,7 @@
           <button class="slot-btn" id="slot-btn-spec" onclick="selectSlot(-1)"><span class="slot-icon">👁</span>Zuschauer<span class="slot-status"></span></button>
         </div>
       </div>
-      <button class="btn btn-p" style="width:100%;margin-top:10px" onclick="joinRun()">Beitreten →</button>
+      <button class="btn btn-p" id="join-run-btn" style="width:100%;margin-top:10px" onclick="joinRun()">Beitreten →</button>
     </div>
     <div id="login-passphrase-box" style="display:none;margin-top:14px;background:var(--sf2);border:1px solid var(--a);border-radius:10px;padding:14px;text-align:center">
       <div style="font-size:.7rem;color:var(--txd);font-family:'Space Mono',monospace;margin-bottom:6px">Deine Passphrase — teile sie mit deinen Mitspielern:</div>
@@ -93,7 +93,7 @@
     <div id="admin-login-section">
       <div class="lbl">Admin-Passwort</div>
       <input type="password" id="admin-pw-input" class="inp" placeholder="Passwort eingeben" onkeydown="if(event.key==='Enter')verifyAdmin()"/>
-      <button class="btn btn-p" style="width:100%" onclick="verifyAdmin()">Anmelden →</button>
+      <button class="btn btn-p" id="admin-login-btn" style="width:100%" onclick="verifyAdmin()">Anmelden →</button>
       <div id="admin-login-error" style="display:none;color:var(--rd);font-size:.74rem;font-family:'Space Mono',monospace;margin-top:10px;text-align:center"></div>
     </div>
 

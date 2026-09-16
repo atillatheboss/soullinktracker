@@ -92,6 +92,14 @@ function flushDB() {
   try { fs.writeFileSync(DB_FILE, Buffer.from(db.export())); }
   catch(e) { console.error('[db] flush error', e.message); }
 }
+function parseRunState(raw, passphrase) {
+  try {
+    return normalizeRunState(JSON.parse(raw || '{}'));
+  } catch (e) {
+    console.error(`[db] state parse failed for run ${passphrase}:`, e.message);
+    return emptyRunState();
+  }
+}
 
 function dbGet(pp) {
   const res = db.exec('SELECT * FROM runs WHERE passphrase = ?', [pp]);
@@ -167,6 +175,73 @@ function isRunProtectedRow(row) {
 // ─── CONSTANTS & HELPERS ─────────────────────────────────────────────────────
 const MAX_PLAYERS = 3, NUM_BOXES = 8, BOX_SIZE = 30;
 function emptySlot() { return { pokeId: null, name: '', nickname: '', shiny: false, alive: true, missed: false }; }
+function isIntIn(v, min, max) { return Number.isInteger(v) && v >= min && v <= max; }
+function validPI(v) { return isIntIn(v, 0, MAX_PLAYERS - 1); }
+function validTeamSlot(v) { return isIntIn(v, 0, 5); }
+function validBox(v) { return isIntIn(v, 0, NUM_BOXES - 1); }
+function validBoxSlot(v) { return isIntIn(v, 0, BOX_SIZE - 1); }
+function cleanText(v, max = 80) { return String(v || '').trim().slice(0, max); }
+function cloneSmallMeta(v, max = 5000) {
+  try {
+    const json = JSON.stringify(v);
+    return json && json.length <= max ? JSON.parse(json) : null;
+  } catch (_) {
+    return null;
+  }
+}
+function cleanPokemon(pokemon) {
+  if (!pokemon || typeof pokemon !== 'object') return null;
+  const pokeId = pokemon.pokeId == null ? null : parseInt(pokemon.pokeId, 10);
+  const cleaned = {
+    ...emptySlot(),
+    pokeId: Number.isFinite(pokeId) && pokeId > 0 ? pokeId : null,
+    name: cleanText(pokemon.name, 80),
+    nickname: cleanText(pokemon.nickname, 40),
+    shiny: !!pokemon.shiny,
+    alive: pokemon.alive !== false,
+    missed: !!pokemon.missed,
+    missedInitiator: !!pokemon.missedInitiator
+  };
+  if (pokemon.shinySwapStandalone) cleaned.shinySwapStandalone = true;
+  if (pokemon.shinySwapOriginId != null) {
+    const originId = parseInt(pokemon.shinySwapOriginId, 10);
+    if (Number.isFinite(originId) && originId > 0) cleaned.shinySwapOriginId = originId;
+  }
+  if (pokemon.shinySwapOriginName) cleaned.shinySwapOriginName = cleanText(pokemon.shinySwapOriginName, 80);
+  if (validPI(pokemon.shinySwapBoxPi)) cleaned.shinySwapBoxPi = pokemon.shinySwapBoxPi;
+  if (validBox(pokemon.shinySwapBoxBn)) cleaned.shinySwapBoxBn = pokemon.shinySwapBoxBn;
+  if (validBoxSlot(pokemon.shinySwapBoxSlot)) cleaned.shinySwapBoxSlot = pokemon.shinySwapBoxSlot;
+  ['shinySwapOrigin','shinySwapRestoreTo','shinySwapOriginalPokemon','shinySwapOriginalLocation'].forEach(key => {
+    if (pokemon[key] !== undefined) {
+      const meta = cloneSmallMeta(pokemon[key]);
+      if (meta !== null) cleaned[key] = meta;
+    }
+  });
+  return cleaned;
+}
+function cleanRouteId(routeId) {
+  const rid = cleanText(routeId, 120);
+  return rid ? rid : null;
+}
+function cleanLinkSlot(slot) {
+  if (!slot || typeof slot !== 'object' || !validPI(slot.playerIndex)) return null;
+  if (slot.location === 'team') {
+    const slotIndex = parseInt(slot.slotIndex, 10);
+    return validTeamSlot(slotIndex) ? { playerIndex: slot.playerIndex, location: 'team', slotIndex } : null;
+  }
+  if (slot.location && typeof slot.location === 'object') {
+    if ('box' in slot.location) {
+      const box = parseInt(slot.location.box, 10);
+      const boxSlot = parseInt(slot.location.slot, 10);
+      return validBox(box) && validBoxSlot(boxSlot) ? { playerIndex: slot.playerIndex, location: { box, slot: boxSlot } } : null;
+    }
+    if ('route' in slot.location) {
+      const route = cleanRouteId(slot.location.route);
+      return route ? { playerIndex: slot.playerIndex, location: { route } } : null;
+    }
+  }
+  return null;
+}
 function randomPassphrase() {
   const w = ['feuer','wasser','gras','blitz','eis','rock','geist','drache','fee','kampf','gift','boden','flug','psycho','stahl','normal'];
   const n = Math.floor(Math.random()*9000)+1000;
@@ -287,7 +362,7 @@ function getOrLoadRun(passphrase) {
   if (runs.has(passphrase)) return runs.get(passphrase);
   const row = dbGet(passphrase);
   if (!row) return null;
-  const run = { state: normalizeRunState(JSON.parse(row.state)), users: {}, saveTimer: null };
+  const run = { state: parseRunState(row.state, passphrase), users: {}, saveTimer: null };
   runs.set(passphrase, run);
   return run;
 }
@@ -295,6 +370,15 @@ function saveRun(passphrase) {
   const run = runs.get(passphrase); if (!run) return;
   clearTimeout(run.saveTimer);
   run.saveTimer = setTimeout(() => dbUpdate(passphrase, JSON.stringify(run.state)), 500);
+}
+function saveRunNow(passphrase) {
+  const run = runs.get(passphrase); if (!run) return;
+  clearTimeout(run.saveTimer);
+  run.saveTimer = null;
+  dbUpdate(passphrase, JSON.stringify(run.state));
+}
+function flushLoadedRuns() {
+  for (const passphrase of runs.keys()) saveRunNow(passphrase);
 }
 
 // ─── DEATH / REVIVE ──────────────────────────────────────────────────────────
@@ -358,7 +442,7 @@ function checkRouteAutoLink(R,activePIs,routeId) {
 
 // ─── EXPRESS & SERVER SETUP ──────────────────────────────────────────────────
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
 
 // ─── IP TRACKING ─────────────────────────────────────────────────────────────
 function getClientIP(req) {
@@ -411,7 +495,7 @@ try {
   httpsServer = https.createServer({ key: fs.readFileSync(keyPath), cert: fs.readFileSync(certPath) }, app);
   console.log('[server] HTTPS server ready (for screen capture)');
 } catch(e) {
-  console.log('[server] HTTPS not available, HTTP only');
+  console.warn('[server] HTTPS not available, HTTP only:', e.message);
 }
 
 // Socket.IO attaches to both servers
@@ -425,7 +509,8 @@ if (httpsServer) {
 // ─── HTTP API ─────────────────────────────────────────────────────────────────
 app.get('/api/runs', (_,res) => res.json(dbList()));
 app.post('/api/runs/create', (req,res) => {
-  const { name, passwordEnabled, runPassword } = req.body || {};
+  const { passwordEnabled, runPassword } = req.body || {};
+  const name = cleanText(req.body?.name, 60);
   if (!name) return res.status(400).json({error:'Name erforderlich'});
   const protectedRun = !!passwordEnabled;
   if (protectedRun && !String(runPassword || '').trim()) {
@@ -445,7 +530,7 @@ app.post('/api/runs/create', (req,res) => {
   res.json({passphrase:pp,name,isProtected:protectedRun});
 });
 app.post('/api/runs/join', (req,res) => {
-  const row=dbGet(req.body?.passphrase?.trim());
+  const row=dbGet(cleanText(req.body?.passphrase, 80));
   if (!row) return res.status(404).json({error:'Run nicht gefunden'});
   const isProtected = isRunProtectedRow(row);
   if (isProtected) {
@@ -585,9 +670,28 @@ app.post('/api/admin/runs/:passphrase/password', (req,res) => {
 // ─── SOCKET.IO ────────────────────────────────────────────────────────────────
 io.on('connection', (socket) => {
   let myPP = null;
+  const rawOn = socket.on.bind(socket);
+  socket.on = (event, handler) => rawOn(event, (...args) => {
+    try {
+      const result = handler(...args);
+      if (result && typeof result.catch === 'function') {
+        result.catch(e => {
+          console.error(`[socket:${event}] async error`, e?.message || e);
+          socket.emit('link-error', 'Serverfehler. Bitte Aktion erneut versuchen.');
+        });
+      }
+    } catch (e) {
+      console.error(`[socket:${event}] error`, e?.message || e);
+      socket.emit('link-error', 'Serverfehler. Bitte Aktion erneut versuchen.');
+    }
+  });
 
-  socket.on('join', ({name, passphrase, requestedPlayerIndex, runPassword}) => {
-    const pp = passphrase?.trim();
+  socket.on('join', (payload = {}) => {
+    const { passphrase, requestedPlayerIndex, runPassword } = payload || {};
+    const name = String(payload?.name || '').trim().slice(0, 24);
+    if (!name) { socket.emit('link-error', 'Name erforderlich.'); return; }
+    const pp = String(passphrase || '').trim();
+    if (!pp) { socket.emit('run-not-found'); return; }
     const row = dbGet(pp);
     if (!row) { socket.emit('run-not-found'); return; }
     if (isRunProtectedRow(row)) {
@@ -664,6 +768,10 @@ io.on('connection', (socket) => {
   socket.on('set-badge',({playerIndex,badgeId,state})=>{
     if(isRO()) return;
     const c=ctx();if(!c)return;
+    if(!validPI(playerIndex)) return;
+    badgeId = cleanText(badgeId, 80);
+    state = Math.max(0, Math.min(2, parseInt(state, 10) || 0));
+    if(!badgeId) return;
     if(!c.R.badgeStates[playerIndex])c.R.badgeStates[playerIndex]={};
     const prevState = c.R.badgeStates[playerIndex][badgeId] ?? 0;
     c.R.badgeStates[playerIndex][badgeId]=state;
@@ -675,7 +783,7 @@ io.on('connection', (socket) => {
     }
     bcast(c);saveRun(myPP);
   });
-  socket.on('set-level-cap',({badgeId,cap})=>{ if(isRO()) return; const c=ctx();if(!c)return; if(!c.R.levelCaps)c.R.levelCaps={}; if(cap===null||cap===''||cap===undefined){delete c.R.levelCaps[badgeId];}else{c.R.levelCaps[badgeId]=parseInt(cap)||0;} bcast(c);saveRun(myPP); });
+  socket.on('set-level-cap',({badgeId,cap})=>{ if(isRO()) return; const c=ctx();if(!c)return; badgeId=cleanText(badgeId,80); if(!badgeId)return; if(!c.R.levelCaps)c.R.levelCaps={}; if(cap===null||cap===''||cap===undefined){delete c.R.levelCaps[badgeId];}else{c.R.levelCaps[badgeId]=Math.max(1,Math.min(100,parseInt(cap,10)||1));} bcast(c);saveRun(myPP); });
   socket.on('set-rules-content',({text,title,rulesetId,trainerCapsText})=>{
     if(isRO()) return;
     const c=ctx();if(!c)return;
@@ -686,16 +794,19 @@ io.on('connection', (socket) => {
     bcast(c);saveRun(myPP);
   });
 
-  socket.on('set-pokemon',({playerIndex,slotIndex,pokemon})=>{ if(isRO()) return; const c=ctx();if(!c)return; const R=c.R; R.team[playerIndex][slotIndex]=pokemon?{...emptySlot(),...pokemon}:emptySlot(); if(pokemon?.pokeId){R.links.forEach(lk=>lk.slots.forEach(s=>{if(s.playerIndex!==playerIndex)return;if(typeof s.location==='object'&&'route'in s.location){const rp=R.routes[playerIndex]?.[s.location.route];if(rp?.pokeId===pokemon.pokeId){s.location='team';s.slotIndex=slotIndex;}}}));} bcast(c);saveRun(myPP); });
-  socket.on('set-box-pokemon',({playerIndex,boxNum,slotNum,pokemon})=>{ if(isRO()) return; const c=ctx();if(!c)return; c.R.box[playerIndex][boxNum][slotNum]=pokemon?{...emptySlot(),...pokemon}:null; bcast(c);saveRun(myPP); });
+  socket.on('set-pokemon',({playerIndex,slotIndex,pokemon})=>{ if(isRO()) return; const c=ctx();if(!c)return; if(!validPI(playerIndex)||!validTeamSlot(slotIndex))return; const R=c.R; const pk=cleanPokemon(pokemon); R.team[playerIndex][slotIndex]=pk||emptySlot(); if(pk?.pokeId){R.links.forEach(lk=>lk.slots.forEach(s=>{if(s.playerIndex!==playerIndex)return;if(typeof s.location==='object'&&'route'in s.location){const rp=R.routes[playerIndex]?.[s.location.route];if(rp?.pokeId===pk.pokeId){s.location='team';s.slotIndex=slotIndex;}}}));} bcast(c);saveRun(myPP); });
+  socket.on('set-box-pokemon',({playerIndex,boxNum,slotNum,pokemon})=>{ if(isRO()) return; const c=ctx();if(!c)return; if(!validPI(playerIndex)||!validBox(boxNum)||!validBoxSlot(slotNum))return; const pk=cleanPokemon(pokemon); c.R.box[playerIndex][boxNum][slotNum]=pk; bcast(c);saveRun(myPP); });
   socket.on('set-route-pokemon',({playerIndex,routeId,pokemon})=>{ if(isRO()) return; const c=ctx();if(!c)return; const R=c.R;
-    R.routes[playerIndex][routeId]=pokemon?{...emptySlot(),...pokemon}:null;
+    routeId=cleanRouteId(routeId);
+    if(!validPI(playerIndex)||!routeId)return;
+    const pk=cleanPokemon(pokemon);
+    R.routes[playerIndex][routeId]=pk;
     const aPIs=Object.values(c.run.users).filter(u=>u.playerIndex>=0).map(u=>u.playerIndex);
-    if(pokemon){
+    if(pk){
       addRunEvent(R,'route-catch',{
         routeId,
         playerIndex,
-        pokemon: summarizePoke(pokemon)
+        pokemon: summarizePoke(pk)
       });
       checkRouteAutoLink(R,aPIs,routeId);
     } else {
@@ -713,6 +824,8 @@ io.on('connection', (socket) => {
 
   // mark-route-missed: mark initiator + all linked partners as missed
   socket.on('mark-route-missed',({playerIndex,routeId})=>{ if(isRO()) return; const c=ctx();if(!c)return; const R=c.R;
+    routeId=cleanRouteId(routeId);
+    if(!validPI(playerIndex)||!routeId)return;
     // Mark the initiator in routes
     const initPk=R.routes[playerIndex]?.[routeId];
     const initBase=initPk?{...initPk}:{pokeId:null,name:'',nickname:'',shiny:false,alive:true};
@@ -773,8 +886,8 @@ io.on('connection', (socket) => {
     bcast(c);saveRun(myPP);
   });
 
-  socket.on('move-to-box',({playerIndex,slotIndex,boxNum,slotNum})=>{ if(isRO()) return; const c=ctx();if(!c)return; const R=c.R; const pk=R.team[playerIndex][slotIndex];if(!pk?.pokeId)return; R.box[playerIndex][boxNum][slotNum]={...pk};R.team[playerIndex][slotIndex]=emptySlot(); R.links.forEach(lk=>lk.slots.forEach(s=>{if(s.playerIndex===playerIndex&&s.location==='team'&&s.slotIndex===slotIndex){s.location={box:boxNum,slot:slotNum};delete s.slotIndex;}})); bcast(c);saveRun(myPP); });
-  socket.on('move-to-team',({playerIndex,boxNum,slotNum,slotIndex})=>{ if(isRO()) return; const c=ctx();if(!c)return; const R=c.R; const pk=R.box[playerIndex][boxNum][slotNum];if(!pk?.pokeId)return; const dp=R.team[playerIndex][slotIndex]; if(dp?.pokeId){R.box[playerIndex][boxNum][slotNum]={...dp};R.links.forEach(lk=>lk.slots.forEach(s=>{if(s.playerIndex===playerIndex&&s.location==='team'&&s.slotIndex===slotIndex){s.location={box:boxNum,slot:slotNum};delete s.slotIndex;}}));}else{R.box[playerIndex][boxNum][slotNum]=null;} R.team[playerIndex][slotIndex]={...pk}; R.links.forEach(lk=>lk.slots.forEach(s=>{if(s.playerIndex===playerIndex&&typeof s.location==='object'&&s.location.box===boxNum&&s.location.slot===slotNum){s.location='team';s.slotIndex=slotIndex;}})); bcast(c);saveRun(myPP); });
+  socket.on('move-to-box',({playerIndex,slotIndex,boxNum,slotNum})=>{ if(isRO()) return; const c=ctx();if(!c)return; if(!validPI(playerIndex)||!validTeamSlot(slotIndex)||!validBox(boxNum)||!validBoxSlot(slotNum))return; const R=c.R; const pk=R.team[playerIndex][slotIndex];if(!pk?.pokeId)return; R.box[playerIndex][boxNum][slotNum]={...pk};R.team[playerIndex][slotIndex]=emptySlot(); R.links.forEach(lk=>lk.slots.forEach(s=>{if(s.playerIndex===playerIndex&&s.location==='team'&&s.slotIndex===slotIndex){s.location={box:boxNum,slot:slotNum};delete s.slotIndex;}})); bcast(c);saveRun(myPP); });
+  socket.on('move-to-team',({playerIndex,boxNum,slotNum,slotIndex})=>{ if(isRO()) return; const c=ctx();if(!c)return; if(!validPI(playerIndex)||!validBox(boxNum)||!validBoxSlot(slotNum)||!validTeamSlot(slotIndex))return; const R=c.R; const pk=R.box[playerIndex][boxNum][slotNum];if(!pk?.pokeId)return; const dp=R.team[playerIndex][slotIndex]; if(dp?.pokeId){R.box[playerIndex][boxNum][slotNum]={...dp};R.links.forEach(lk=>lk.slots.forEach(s=>{if(s.playerIndex===playerIndex&&s.location==='team'&&s.slotIndex===slotIndex){s.location={box:boxNum,slot:slotNum};delete s.slotIndex;}}));}else{R.box[playerIndex][boxNum][slotNum]=null;} R.team[playerIndex][slotIndex]={...pk}; R.links.forEach(lk=>lk.slots.forEach(s=>{if(s.playerIndex===playerIndex&&typeof s.location==='object'&&s.location.box===boxNum&&s.location.slot===slotNum){s.location='team';s.slotIndex=slotIndex;}})); bcast(c);saveRun(myPP); });
   socket.on('move-link-to-box',({linkId,boxTargets})=>{ if(isRO()) return; const c=ctx();if(!c)return; const R=c.R; const lk=R.links.find(l=>l.id===linkId);if(!lk)return; boxTargets.forEach(({playerIndex,boxNum,slotNum})=>{const slot=lk.slots.find(s=>s.playerIndex===playerIndex);if(!slot)return;const pk=getPokeAt(R,playerIndex,slot.location,slot.slotIndex);if(!pk?.pokeId)return;setPokeAt(R,playerIndex,slot.location,slot.slotIndex,slot.location==='team'?emptySlot():null);R.box[playerIndex][boxNum][slotNum]={...pk};slot.location={box:boxNum,slot:slotNum};delete slot.slotIndex;}); bcast(c);saveRun(myPP); });
 
   // Move a specific link's pokemon to team slots — only updates slots belonging to THIS link,
@@ -830,12 +943,12 @@ io.on('connection', (socket) => {
   });
   socket.on('move-from-route',({playerIndex,routeId,toLocation,toSlotIndex})=>{ if(isRO()) return; const c=ctx();if(!c)return; const R=c.R; R.links.forEach(lk=>lk.slots.forEach(s=>{if(s.playerIndex===playerIndex&&typeof s.location==='object'&&s.location.route===routeId){if(toLocation==='team'){s.location='team';s.slotIndex=toSlotIndex;}else{s.location=toLocation;delete s.slotIndex;}}})); const pk=R.routes[playerIndex][routeId]; if(pk?.pokeId){if(toLocation==='team')R.team[playerIndex][toSlotIndex]={...pk};else R.box[playerIndex][toLocation.box][toLocation.slot]={...pk};} bcast(c);saveRun(myPP); });
 
-  socket.on('set-alive',({playerIndex,slotIndex,alive})=>{ if(isRO()) return; const c=ctx();if(!c)return; const R=c.R; const p=R.team[playerIndex]?.[slotIndex];if(!p)return; const was=p.alive; p.alive=alive; if(p.pokeId){Object.values(R.routes[playerIndex]).forEach(rp=>{if(rp&&rp.pokeId===p.pokeId)rp.alive=alive;});} if(!alive&&was){R.deathCounts[playerIndex]++;if(!R.totalDeathCounts)R.totalDeathCounts=[0,0,0];R.totalDeathCounts[playerIndex]++;addRunEvent(R,'pokemon-died',{playerIndex,location:{type:'team',slotIndex},pokemon:summarizePoke(p)});propagateDeath(R,playerIndex,'team',slotIndex);}else if(alive&&!was){R.deathCounts[playerIndex]=Math.max(0,R.deathCounts[playerIndex]-1);if(!R.totalDeathCounts)R.totalDeathCounts=[0,0,0];R.links.forEach(lk=>{if(lk.broken){const culpritPi=lk.culprit?.playerIndex;checkRevive(R,lk.id);if(!lk.broken&&culpritPi!=null){R.totalDeathCounts[culpritPi]=Math.max(0,R.totalDeathCounts[culpritPi]-1);}}});} bcast(c);saveRun(myPP); });
-  socket.on('set-death-count',({playerIndex,count})=>{ if(isRO()) return; const c=ctx();if(!c)return; if(playerIndex>=0&&playerIndex<3){const old=c.R.deathCounts[playerIndex]||0;const next=Math.max(0,parseInt(count)||0);const delta=next-old;if(!c.R.totalDeathCounts)c.R.totalDeathCounts=[0,0,0];c.R.totalDeathCounts[playerIndex]=Math.max(0,(c.R.totalDeathCounts[playerIndex]||0)+delta);c.R.deathCounts[playerIndex]=next;bcast(c);saveRun(myPP);} });
-  socket.on('set-box-alive',({playerIndex,boxNum,slotNum,alive})=>{ if(isRO()) return; const c=ctx();if(!c)return; const p=c.R.box[playerIndex]?.[boxNum]?.[slotNum];if(!p)return; const was=p.alive; p.alive=alive; if(!alive&&was){addRunEvent(c.R,'pokemon-died',{playerIndex,location:{type:'box',box:boxNum,slot:slotNum},pokemon:summarizePoke(p)});propagateDeath(c.R,playerIndex,{box:boxNum,slot:slotNum});} bcast(c);saveRun(myPP); });
-  socket.on('set-route-alive',({playerIndex,routeId,alive})=>{ if(isRO()) return; const c=ctx();if(!c)return; const p=c.R.routes[playerIndex]?.[routeId];if(!p)return; const was=p.alive; p.alive=alive; if(!alive&&was){addRunEvent(c.R,'pokemon-died',{playerIndex,location:{type:'route',routeId},pokemon:summarizePoke(p)});propagateDeath(c.R,playerIndex,{route:routeId});} bcast(c);saveRun(myPP); });
+  socket.on('set-alive',({playerIndex,slotIndex,alive})=>{ if(isRO()) return; const c=ctx();if(!c)return; if(!validPI(playerIndex)||!validTeamSlot(slotIndex))return; const R=c.R; const p=R.team[playerIndex]?.[slotIndex];if(!p)return; alive=!!alive; const was=p.alive; p.alive=alive; if(p.pokeId){Object.values(R.routes[playerIndex]).forEach(rp=>{if(rp&&rp.pokeId===p.pokeId)rp.alive=alive;});} if(!alive&&was){R.deathCounts[playerIndex]++;if(!R.totalDeathCounts)R.totalDeathCounts=[0,0,0];R.totalDeathCounts[playerIndex]++;addRunEvent(R,'pokemon-died',{playerIndex,location:{type:'team',slotIndex},pokemon:summarizePoke(p)});propagateDeath(R,playerIndex,'team',slotIndex);}else if(alive&&!was){R.deathCounts[playerIndex]=Math.max(0,R.deathCounts[playerIndex]-1);if(!R.totalDeathCounts)R.totalDeathCounts=[0,0,0];R.links.forEach(lk=>{if(lk.broken){const culpritPi=lk.culprit?.playerIndex;checkRevive(R,lk.id);if(!lk.broken&&culpritPi!=null){R.totalDeathCounts[culpritPi]=Math.max(0,R.totalDeathCounts[culpritPi]-1);}}});} bcast(c);saveRun(myPP); });
+  socket.on('set-death-count',({playerIndex,count})=>{ if(isRO()) return; const c=ctx();if(!c)return; if(validPI(playerIndex)){const old=c.R.deathCounts[playerIndex]||0;const next=Math.max(0,Math.min(999,parseInt(count,10)||0));const delta=next-old;if(!c.R.totalDeathCounts)c.R.totalDeathCounts=[0,0,0];c.R.totalDeathCounts[playerIndex]=Math.max(0,(c.R.totalDeathCounts[playerIndex]||0)+delta);c.R.deathCounts[playerIndex]=next;bcast(c);saveRun(myPP);} });
+  socket.on('set-box-alive',({playerIndex,boxNum,slotNum,alive})=>{ if(isRO()) return; const c=ctx();if(!c)return; if(!validPI(playerIndex)||!validBox(boxNum)||!validBoxSlot(slotNum))return; const p=c.R.box[playerIndex]?.[boxNum]?.[slotNum];if(!p)return; alive=!!alive; const was=p.alive; p.alive=alive; if(!alive&&was){addRunEvent(c.R,'pokemon-died',{playerIndex,location:{type:'box',box:boxNum,slot:slotNum},pokemon:summarizePoke(p)});propagateDeath(c.R,playerIndex,{box:boxNum,slot:slotNum});} bcast(c);saveRun(myPP); });
+  socket.on('set-route-alive',({playerIndex,routeId,alive})=>{ if(isRO()) return; const c=ctx();if(!c)return; routeId=cleanRouteId(routeId); if(!validPI(playerIndex)||!routeId)return; const p=c.R.routes[playerIndex]?.[routeId];if(!p)return; alive=!!alive; const was=p.alive; p.alive=alive; if(!alive&&was){addRunEvent(c.R,'pokemon-died',{playerIndex,location:{type:'route',routeId},pokemon:summarizePoke(p)});propagateDeath(c.R,playerIndex,{route:routeId});} bcast(c);saveRun(myPP); });
 
-  socket.on('add-link',({slots})=>{ if(isRO()) return; const c=ctx();if(!c)return; const R=c.R; const hasShiny=slots.some(s=>{const p=getPokeAt(R,s.playerIndex,s.location,s.slotIndex);return p?.shiny;}); if(hasShiny){const locs=slots.map(s=>locStr(s.location));if(new Set(locs).size>1){socket.emit('link-error','Shiny-Pokemon koennen nur mit gleicher Position verlinkt werden.');return;}} const linkId=R.linkIdCounter++; R.links.push({id:linkId,slots,broken:false}); addRunEvent(R,'manual-link-created',{linkId,slots:slots.map(s=>({playerIndex:s.playerIndex,location:serializeLoc(s.location,s.slotIndex),pokemon:summarizePoke(getPokeAt(R,s.playerIndex,s.location,s.slotIndex))}))}); bcast(c);saveRun(myPP); });
+  socket.on('add-link',({slots})=>{ if(isRO()) return; const c=ctx();if(!c)return; const R=c.R; slots=Array.isArray(slots)?slots.map(cleanLinkSlot).filter(Boolean):[]; if(slots.length<2){socket.emit('link-error','Mindestens 2 gueltige Slots erforderlich.');return;} const hasShiny=slots.some(s=>{const p=getPokeAt(R,s.playerIndex,s.location,s.slotIndex);return p?.shiny;}); if(hasShiny){const locs=slots.map(s=>locStr(s.location));if(new Set(locs).size>1){socket.emit('link-error','Shiny-Pokemon koennen nur mit gleicher Position verlinkt werden.');return;}} const linkId=R.linkIdCounter++; R.links.push({id:linkId,slots,broken:false}); addRunEvent(R,'manual-link-created',{linkId,slots:slots.map(s=>({playerIndex:s.playerIndex,location:serializeLoc(s.location,s.slotIndex),pokemon:summarizePoke(getPokeAt(R,s.playerIndex,s.location,s.slotIndex))}))}); bcast(c);saveRun(myPP); });
   socket.on('remove-link',({linkId})=>{ if(isRO()) return; const c=ctx();if(!c)return; c.R.links=c.R.links.filter(l=>l.id!==linkId); bcast(c);saveRun(myPP); });
 
   socket.on('run-start',()=>{
@@ -941,10 +1054,32 @@ function broadcastRoom(roomId,run) { io.to(roomId).emit('room-state',Object.entr
 
 const HTTP_PORT  = process.env.PORT      || 3000;
 const HTTPS_PORT = process.env.HTTPS_PORT || 3443;
+function listenWithFriendlyErrors(serverToListen, port, label) {
+  serverToListen.once('error', (e) => {
+    const msg = e.code === 'EADDRINUSE'
+      ? `${label} port ${port} ist bereits belegt. Setze PORT/HTTPS_PORT auf einen freien Port.`
+      : `${label} konnte nicht starten: ${e.message}`;
+    console.error('[server]', msg);
+    if (label === 'HTTP') process.exit(1);
+  });
+  serverToListen.listen(port, () => {
+    if (label === 'HTTP') console.log(`\n🖥  SoulLink (HTTP):  http://localhost:${port}`);
+    else console.log(`🔒  SoulLink (HTTPS): https://localhost:${port}  ← für Screen Capture\n`);
+  });
+}
+['SIGINT', 'SIGTERM'].forEach(sig => {
+  process.once(sig, () => {
+    console.log(`[server] ${sig} received, flushing runs`);
+    flushLoadedRuns();
+    try { _logStream.end(); } catch (_) {}
+    process.exit(0);
+  });
+});
+process.once('beforeExit', flushLoadedRuns);
 initDB().then(() => {
-  httpServer.listen(HTTP_PORT, () => console.log(`\n🖥  SoulLink (HTTP):  http://localhost:${HTTP_PORT}`));
+  listenWithFriendlyErrors(httpServer, HTTP_PORT, 'HTTP');
   if (httpsServer) {
-    httpsServer.listen(HTTPS_PORT, () => console.log(`🔒  SoulLink (HTTPS): https://localhost:${HTTPS_PORT}  ← für Screen Capture\n`));
+    listenWithFriendlyErrors(httpsServer, HTTPS_PORT, 'HTTPS');
   }
 }).catch(e => { console.error('DB init failed:', e); process.exit(1); });
 
