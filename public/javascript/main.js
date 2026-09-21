@@ -65,6 +65,16 @@ let links=[];
 let selectedEdition=null;
 
 const colAssign={};
+const STREAM_ORDER_KEY='soullink-stream-order-v1';
+let _streamDragState={containerId:null,colId:null,mode:null,lastBeforeId:null,lastHoverId:null,lastIntent:null};
+const _isTouchDevice=(typeof window!=='undefined')&&((window.matchMedia&&window.matchMedia('(pointer: coarse)').matches)||('ontouchstart' in window)||(navigator.maxTouchPoints>0));
+let _streamTouchSelected={containerId:null,colId:null};
+let _streamTouchSuppressUntil=0;
+const _streamEmptyDragImg=(()=>{
+  const img=new Image();
+  img.src='data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
+  return img;
+})();
 function es(){return{pokeId:null,name:'',nickname:'',shiny:false,alive:true,missed:false};}
 
 // ═══════════════════════════════════════════════
@@ -614,8 +624,378 @@ function joinRoom(){ connectToRun(document.getElementById('ni').value.trim(), _p
 // ═══════════════════════════════════════════════
 // COLUMNS
 // ═══════════════════════════════════════════════
+function getStreamOrderStorageKey(mode){
+  const runKey=myPP||'default';
+  const viewerKey=myPI>=0?`p${myPI}`:'spectator';
+  return `${STREAM_ORDER_KEY}:${runKey}:${viewerKey}:${mode}`;
+}
+
+function getSortableStreamCols(container){
+  if(!container)return[];
+  return [...container.children].filter(el=>
+    el.classList?.contains('scol') &&
+    el.id!=='col-hidden-peer2' &&
+    !el.hasAttribute('data-dnd-disabled')
+  );
+}
+
+function isVisibleStreamCol(el){
+  if(!el)return false;
+  const st=getComputedStyle(el);
+  return st.display!=='none'&&st.visibility!=='hidden';
+}
+
+function saveStreamColOrder(container,mode){
+  if(!container)return;
+  const ids=getSortableStreamCols(container).map(el=>el.id).filter(Boolean);
+  try{localStorage.setItem(getStreamOrderStorageKey(mode),JSON.stringify(ids));}catch(_){}
+}
+
+function getStreamOrderAnchor(container){
+  if(!container) return null;
+  if(container.id==='sg') return document.getElementById('peers-row');
+  return null;
+}
+
+function applySavedStreamColOrder(container,mode){
+  if(!container)return;
+  let saved=[];
+  try{
+    const raw=localStorage.getItem(getStreamOrderStorageKey(mode));
+    saved=raw?JSON.parse(raw):[];
+  }catch(_){saved=[];}
+  if(!Array.isArray(saved)||!saved.length)return;
+  const cols=getSortableStreamCols(container);
+  const anchor=getStreamOrderAnchor(container);
+  const byId=new Map(cols.map(el=>[el.id,el]));
+  saved.forEach(id=>{
+    const col=byId.get(id);
+    if(!col)return;
+    if(anchor&&anchor.parentElement===container) container.insertBefore(col,anchor);
+    else container.appendChild(col);
+    byId.delete(id);
+  });
+  byId.forEach(col=>{
+    if(anchor&&anchor.parentElement===container) container.insertBefore(col,anchor);
+    else container.appendChild(col);
+  });
+}
+
+function getSortAxis(container,dragging){
+  const visible=getSortableStreamCols(container).filter(el=>el!==dragging&&isVisibleStreamCol(el));
+  if(visible.length<2)return'x';
+  const a=visible[0].getBoundingClientRect();
+  const b=visible[1].getBoundingClientRect();
+  const dx=Math.abs(a.left-b.left);
+  const dy=Math.abs(a.top-b.top);
+  return dx>=dy?'x':'y';
+}
+
+function setDropTarget(container,target){
+  container.querySelectorAll('.drop-target').forEach(el=>el.classList.remove('drop-target'));
+  if(target&&target.parentElement===container&&target.classList.contains('scol')){
+    target.classList.add('drop-target');
+  }
+}
+
+function getDropInsertBefore(container,dragging,clientX,clientY,rawTarget){
+  const hovered=rawTarget?.closest?.('.scol');
+  if(hovered&&hovered!==dragging&&hovered.parentElement===container&&isVisibleStreamCol(hovered)){
+    const axis=getSortAxis(container,dragging);
+    const r=hovered.getBoundingClientRect();
+    const pointer=axis==='y'?clientY:clientX;
+    const center=axis==='y'?(r.top+r.height/2):(r.left+r.width/2);
+    const size=axis==='y'?r.height:r.width;
+    const deadzone=Math.max(10,Math.min(24,size*0.18));
+    let intent=null;
+    if(pointer<center-deadzone) intent='before';
+    else if(pointer>center+deadzone) intent='after';
+    else if(_streamDragState.lastHoverId===hovered.id&&_streamDragState.lastIntent) intent=_streamDragState.lastIntent;
+    if(!intent) return dragging; // keep current order while inside deadzone
+    _streamDragState.lastHoverId=hovered.id;
+    _streamDragState.lastIntent=intent;
+    return intent==='before'?hovered:hovered.nextElementSibling;
+  }
+  _streamDragState.lastHoverId=null;
+  _streamDragState.lastIntent=null;
+  const axis=getSortAxis(container,dragging);
+  const pointer=axis==='y'?clientY:clientX;
+  const candidates=getSortableStreamCols(container).filter(el=>el!==dragging&&isVisibleStreamCol(el));
+  if(!candidates.length)return null;
+  for(const el of candidates){
+    const r=el.getBoundingClientRect();
+    const center=axis==='y'?(r.top+r.height/2):(r.left+r.width/2);
+    if(pointer<center) return el;
+  }
+  return null;
+}
+
+function animateStreamColReflow(cols,firstRects){
+  cols.forEach(el=>{
+    const prev=firstRects.get(el);
+    if(!prev)return;
+    const now=el.getBoundingClientRect();
+    const dx=prev.left-now.left;
+    const dy=prev.top-now.top;
+    if(Math.abs(dx)<1&&Math.abs(dy)<1)return;
+    el.style.transition='none';
+    el.style.transform=`translate(${dx}px,${dy}px)`;
+    requestAnimationFrame(()=>{
+      el.style.transition='transform .24s cubic-bezier(.22,.9,.24,1)';
+      el.style.transform='';
+    });
+  });
+}
+
+function moveDraggedStreamCol(container,dragging,beforeEl){
+  if(!container||!dragging)return;
+  const cols=getSortableStreamCols(container).filter(isVisibleStreamCol);
+  const anchor=getStreamOrderAnchor(container);
+  const firstRects=new Map(cols.map(el=>[el,el.getBoundingClientRect()]));
+  if(beforeEl&&beforeEl!==dragging)container.insertBefore(dragging,beforeEl);
+  else if(!beforeEl){
+    if(anchor&&anchor.parentElement===container) container.insertBefore(dragging,anchor);
+    else if(dragging!==container.lastElementChild) container.appendChild(dragging);
+  }
+  animateStreamColReflow(cols,firstRects);
+}
+function clearStreamTouchSelectionUI(){
+  document.querySelectorAll('.scol.stream-touch-selected').forEach(el=>el.classList.remove('stream-touch-selected'));
+}
+function setStreamTouchSelection(container,col){
+  clearStreamTouchSelectionUI();
+  _streamTouchSelected={containerId:container?.id||null,colId:col?.id||null};
+  if(col)col.classList.add('stream-touch-selected');
+}
+function swapStreamCols(container,a,b){
+  if(!container||!a||!b||a===b||a.parentElement!==container||b.parentElement!==container)return;
+  const cols=getSortableStreamCols(container).filter(isVisibleStreamCol);
+  const firstRects=new Map(cols.map(el=>[el,el.getBoundingClientRect()]));
+  const ph=document.createElement('div');
+  container.insertBefore(ph,a);
+  container.insertBefore(a,b);
+  container.insertBefore(b,ph);
+  ph.remove();
+  animateStreamColReflow(cols,firstRects);
+}
+function onStreamTouchSwap(container,col){
+  if(!container||!col)return;
+  if(Date.now()<_streamTouchSuppressUntil)return;
+  const cur=_streamTouchSelected;
+  if(cur.colId===null||cur.containerId!==container.id){
+    setStreamTouchSelection(container,col);
+    toast('Stream ausgewählt – tippe Ziel-Stream',0);
+    return;
+  }
+  if(cur.colId===col.id){
+    setStreamTouchSelection(null,null);
+    return;
+  }
+  const source=document.getElementById(cur.colId);
+  if(!source||source.parentElement!==container){
+    setStreamTouchSelection(container,col);
+    return;
+  }
+  swapStreamCols(container,source,col);
+  saveStreamColOrder(container,container.dataset.streamDndMode||'players-full');
+  setStreamTouchSelection(null,null);
+  _streamTouchSuppressUntil=Date.now()+450;
+}
+
+function onStreamDragStart(e,container,mode,col){
+  if(col.getAttribute('draggable')!=='true'){e.preventDefault();return;}
+  _streamDragState={containerId:container.id,colId:col.id,mode,lastBeforeId:null,lastHoverId:null,lastIntent:null};
+  container.classList.add('drag-active');
+  col.classList.add('dragging');
+  try{
+    e.dataTransfer.effectAllowed='move';
+    e.dataTransfer.setData('text/plain',col.id);
+    // Hide native drag ghost to avoid browser "snap-back" animation on drop.
+    e.dataTransfer.setDragImage(_streamEmptyDragImg,0,0);
+  }catch(_){}
+}
+
+function onStreamDragOver(e,container){
+  if(_streamDragState.containerId!==container.id)return;
+  e.preventDefault();
+  try{ if(e.dataTransfer) e.dataTransfer.dropEffect='move'; }catch(_){}
+  const dragging=document.getElementById(_streamDragState.colId);
+  if(!dragging||dragging.parentElement!==container)return;
+  const beforeEl=getDropInsertBefore(container,dragging,e.clientX,e.clientY,e.target);
+  const beforeId=beforeEl?.id||'__end__';
+  if(beforeId===_streamDragState.lastBeforeId)return;
+  _streamDragState.lastBeforeId=beforeId;
+  moveDraggedStreamCol(container,dragging,beforeEl);
+  const hoverEl=beforeEl&&beforeEl!==dragging?beforeEl:(dragging.previousElementSibling||dragging.nextElementSibling);
+  setDropTarget(container,hoverEl);
+}
+
+function clearStreamDragState(container,mode){
+  if(!container)return;
+  container.classList.remove('drag-active');
+  container.querySelectorAll('.dragging').forEach(el=>el.classList.remove('dragging'));
+  container.querySelectorAll('.drop-target').forEach(el=>el.classList.remove('drop-target'));
+  saveStreamColOrder(container,mode);
+  _streamDragState={containerId:null,colId:null,mode:null,lastBeforeId:null,lastHoverId:null,lastIntent:null};
+}
+
+function getPeerColsInParent(parent){
+  if(!parent)return[];
+  return [...parent.children].filter(el=>el?.id==='col-1'||el?.id==='col-2');
+}
+
+function getFullColsInParent(parent){
+  if(!parent)return[];
+  return [...parent.children].filter(el=>el?.id==='col-0'||el?.id==='col-1'||el?.id==='col-2');
+}
+
+function syncPlayerStreamColumnParents(){
+  if(myPI<0)return;
+  const sg=document.getElementById('sg');
+  const peersRow=document.getElementById('peers-row');
+  const col0=document.getElementById('col-0');
+  const col1=document.getElementById('col-1');
+  const col2=document.getElementById('col-2');
+  if(!sg||!peersRow||!col0||!col1||!col2)return;
+
+  if(!_minimized){
+    // Normal mode: bring col-0/1/2 back to sg but preserve existing visual order.
+    const orderedFromSg=getFullColsInParent(sg);
+    const orderedFromRow=getFullColsInParent(peersRow);
+    const merged=[...orderedFromSg,...orderedFromRow,col0,col1,col2];
+    const seen=new Set();
+    const fullOrder=merged.filter(col=>{
+      if(!col||seen.has(col.id)) return false;
+      seen.add(col.id);
+      return true;
+    });
+    fullOrder.forEach(col=>sg.insertBefore(col, peersRow));
+    return;
+  }
+
+  // Minimized: keep own column isolated; only peers are arranged relative to each other.
+  sg.insertBefore(col0, peersRow);
+  col0.setAttribute('draggable','false');
+  col0.classList.remove('stream-sortable','dragging','drop-target');
+  const peerOrderFromFull=getPeerColsInParent(sg);
+  const peerOrderFromRow=getPeerColsInParent(peersRow);
+  const peerOrder=(peerOrderFromFull.length?peerOrderFromFull:peerOrderFromRow.length?peerOrderFromRow:[col1,col2]).filter(Boolean);
+  peerOrder.forEach(col=>peersRow.appendChild(col));
+}
+
+function initStreamDnDContainer(containerId,mode){
+  const container=document.getElementById(containerId);
+  if(!container)return;
+  container.dataset.streamDndMode=mode;
+  if(mode!=='players-minimized') applySavedStreamColOrder(container,mode);
+  const cols=getSortableStreamCols(container);
+  const sortableCount=cols.filter(isVisibleStreamCol).length;
+  const canSort=sortableCount>1;
+  container.classList.toggle('stream-dnd-enabled',canSort);
+  cols.forEach(col=>{
+    // Defensive cleanup so layout can't keep stale drag transforms on joins/reconnects
+    if(_streamDragState.colId!==col.id){
+      col.style.transform='';
+      col.style.transition='';
+      col.style.pointerEvents='';
+      delete col.dataset.prevPointerEvents;
+      col.classList.remove('dragging','drop-target');
+    }
+    col.setAttribute('draggable',canSort?'true':'false');
+    col.classList.toggle('stream-sortable',canSort);
+    if(!col._streamDndHandlers){
+      col._streamDndHandlers={
+        dragstart:(e)=>{
+          const activeContainer=col.parentElement?.closest?.('[data-stream-dnd-mode]')||col.parentElement;
+          if(!activeContainer)return;
+          onStreamDragStart(e,activeContainer,activeContainer.dataset.streamDndMode||mode,col);
+        },
+        dragover:(e)=>{
+          const activeContainer=col.parentElement?.closest?.('[data-stream-dnd-mode]')||col.parentElement;
+          if(!activeContainer)return;
+          onStreamDragOver(e,activeContainer);
+        },
+        dragenter:(e)=>e.preventDefault(),
+        dragend:()=>{
+          const activeContainer=document.getElementById(_streamDragState.containerId)
+            || col.parentElement?.closest?.('[data-stream-dnd-mode]')
+            || col.parentElement;
+          if(!activeContainer)return;
+          clearStreamDragState(activeContainer,activeContainer.dataset.streamDndMode||mode);
+        },
+      };
+      col.addEventListener('dragstart',col._streamDndHandlers.dragstart);
+      col.addEventListener('dragover',col._streamDndHandlers.dragover);
+      col.addEventListener('dragenter',col._streamDndHandlers.dragenter);
+      col.addEventListener('dragend',col._streamDndHandlers.dragend);
+      if(_isTouchDevice){
+        let tmo=null,active=false,sx=0,sy=0;
+        const clearTouch=()=>{if(tmo){clearTimeout(tmo);tmo=null;}};
+        col.addEventListener('touchstart',e=>{
+          if(e.touches.length!==1)return;
+          active=true;
+          sx=e.touches[0].clientX;sy=e.touches[0].clientY;
+          clearTouch();
+          tmo=setTimeout(()=>{
+            if(!active)return;
+            const activeContainer=col.parentElement?.closest?.('[data-stream-dnd-mode]')||col.parentElement;
+            onStreamTouchSwap(activeContainer,col);
+            _streamTouchSuppressUntil=Date.now()+450;
+          },360);
+        },{passive:true});
+        col.addEventListener('touchmove',e=>{
+          if(!active||!tmo||e.touches.length!==1)return;
+          const dx=Math.abs(e.touches[0].clientX-sx),dy=Math.abs(e.touches[0].clientY-sy);
+          if(dx>8||dy>8)clearTouch();
+        },{passive:true});
+        col.addEventListener('touchend',()=>{active=false;clearTouch();},{passive:true});
+        col.addEventListener('touchcancel',()=>{active=false;clearTouch();},{passive:true});
+        col.addEventListener('click',e=>{
+          if(Date.now()<_streamTouchSuppressUntil){e.preventDefault();e.stopPropagation();return;}
+          const activeContainer=col.parentElement?.closest?.('[data-stream-dnd-mode]')||col.parentElement;
+          if(_streamTouchSelected.colId!==null&&_streamTouchSelected.containerId===activeContainer?.id){
+            e.preventDefault();
+            e.stopPropagation();
+            onStreamTouchSwap(activeContainer,col);
+          }
+        });
+      }
+    }
+  });
+  if(!container._streamDndHandlers){
+    container._streamDndHandlers={
+      dragover:(e)=>onStreamDragOver(e,container),
+      drop:(e)=>{
+        if(_streamDragState.containerId!==container.id)return;
+        e.preventDefault();
+        clearStreamDragState(container,container.dataset.streamDndMode||mode);
+      },
+      dragleave:(e)=>{
+        if(!container.contains(e.relatedTarget))setDropTarget(container,null);
+      },
+    };
+    container.addEventListener('dragover',container._streamDndHandlers.dragover);
+    container.addEventListener('drop',container._streamDndHandlers.drop);
+    container.addEventListener('dragleave',container._streamDndHandlers.dragleave);
+  }
+}
+
+function initStreamDnD(){
+  if(myPI>=0){
+    syncPlayerStreamColumnParents();
+    if(_minimized) initStreamDnDContainer('peers-row','players-minimized');
+    else{
+      initStreamDnDContainer('sg','players-full');
+      // Keep peers-row wrapper as anchor after applying saved full-layout order.
+      syncPlayerStreamColumnParents();
+    }
+  }
+  if(myPI<0) initStreamDnDContainer('ro-sg','spectator');
+}
+
 function updateSgCols(){
   const sg=document.getElementById('sg');if(!sg)return;
+  if(myPI>=0) syncPlayerStreamColumnParents();
 
   // Count active players (non-spectators)
   const activePeerCount=[...peers.values()].filter(p=>p.playerIndex>=0).length;
@@ -637,6 +1017,7 @@ function updateSgCols(){
     // Normal: set grid columns to match player count
     sg.style.gridTemplateColumns=`repeat(${cols},1fr)`;
   }
+  initStreamDnD();
 }
 
 function assignCols(){
@@ -681,6 +1062,7 @@ function assignCols(){
   }
   if(typeof renderBadgeBars==='function') renderBadgeBars();
   updateSgCols();
+  initStreamDnD();
 }
 
 function buildReadonlyGrid(){
@@ -698,7 +1080,7 @@ function buildReadonlyGrid(){
   }
   // Don't wipe if videos already exist — just update labels
   const existingVideos=rsg.querySelectorAll('video[src-bound]');
-  if(existingVideos.length>0) return; // grid already has active streams, don't destroy
+  if(existingVideos.length>0){initStreamDnD();return;} // grid already has active streams, don't destroy
   rsg.innerHTML='';
   const sorted=[...peers.values()].filter(p=>p.playerIndex>=0).sort((a,b)=>a.playerIndex-b.playerIndex);
 
@@ -764,6 +1146,7 @@ function buildReadonlyGrid(){
           roSlot.style.cssText='background:var(--sf);border:1px solid var(--bd);border-radius:12px;overflow:hidden;aspect-ratio:16/9;position:relative';
           roSlot.innerHTML=`<div class="sse"><div style="font-size:1.8rem;opacity:.16">👤</div><span style="font-size:.7rem;font-family:Space Mono,monospace;color:var(--txd)">${p.name} (kein Stream)</span></div>`;
           col.appendChild(lbl);col.appendChild(roSlot);rsg.appendChild(col);
+          initStreamDnD();
         } else {
           buildReadonlyGrid(); roSlot=document.getElementById('ro-slot-'+p.playerIndex);
         }
@@ -799,6 +1182,7 @@ function buildReadonlyGrid(){
       }
     });
   },300);
+  initStreamDnD();
 }
 
 // ═══════════════════════════════════════════════
@@ -1424,6 +1808,143 @@ function getLinkForSlot(pi, si) {
   );
 }
 
+let _teamSlotDrag={playerIndex:null,slotIndex:null,previewPlayerIndex:null,previewSlotIndex:null};
+let _teamSlotDragSuppressUntil=0;
+let _teamSlotTouchSuppressUntil=0;
+let _teamSlotTouchSelected={playerIndex:null,slotIndex:null};
+function clearTeamSlotTouchSelectionUI(){
+  document.querySelectorAll('.es.team-slot-touch-selected').forEach(el=>el.classList.remove('team-slot-touch-selected'));
+}
+function selectTeamSlotTouchTarget(playerIndex,slotIndex){
+  clearTeamSlotTouchSelectionUI();
+  const el=document.querySelector(`.pb-g[data-player-index="${playerIndex}"] .es[data-team-slot-index="${slotIndex}"]`);
+  if(el)el.classList.add('team-slot-touch-selected');
+}
+function handleTeamSlotTouchSwap(playerIndex,slotIndex){
+  if(myReadonly)return;
+  const cur=_teamSlotTouchSelected;
+  if(cur.playerIndex===null||cur.slotIndex===null){
+    _teamSlotTouchSelected={playerIndex,slotIndex};
+    selectTeamSlotTouchTarget(playerIndex,slotIndex);
+    toast('Slot ausgewählt – tippe Ziel-Slot',0);
+    return;
+  }
+  if(cur.playerIndex===playerIndex&&cur.slotIndex===slotIndex){
+    _teamSlotTouchSelected={playerIndex:null,slotIndex:null};
+    clearTeamSlotTouchSelectionUI();
+    return;
+  }
+  if(cur.playerIndex!==playerIndex){
+    _teamSlotTouchSelected={playerIndex,slotIndex};
+    selectTeamSlotTouchTarget(playerIndex,slotIndex);
+    return;
+  }
+  socket.emit('swap-team-slots',{playerIndex,slotA:cur.slotIndex,slotB:slotIndex});
+  _teamSlotTouchSelected={playerIndex:null,slotIndex:null};
+  clearTeamSlotTouchSelectionUI();
+  _teamSlotTouchSuppressUntil=Date.now()+450;
+}
+function getTeamSlotElements(playerIndex=null){
+  const sel=playerIndex===null
+    ? '.pb-g .es[data-team-slot-index]'
+    : `.pb-g[data-player-index="${playerIndex}"] .es[data-team-slot-index]`;
+  return [...document.querySelectorAll(sel)];
+}
+function animateTeamSlotReflow(els,firstRects){
+  els.forEach(el=>{
+    const prev=firstRects.get(el); if(!prev)return;
+    const now=el.getBoundingClientRect();
+    const dx=prev.left-now.left, dy=prev.top-now.top;
+    if(Math.abs(dx)<1&&Math.abs(dy)<1)return;
+    el.style.transition='none';
+    el.style.transform=`translate(${dx}px,${dy}px)`;
+    requestAnimationFrame(()=>{
+      el.style.transition='transform .2s cubic-bezier(.22,.9,.24,1)';
+      el.style.transform='';
+    });
+  });
+}
+function applyTeamSlotPreviewOrder(playerIndex,sourceSlotIndex,targetSlotIndex){
+  const els=getTeamSlotElements(playerIndex);
+  if(!els.length)return;
+  const firstRects=new Map(els.map(el=>[el,el.getBoundingClientRect()]));
+  els.forEach(el=>{
+    const idx=parseInt(el.dataset.teamSlotIndex,10);
+    if(!Number.isInteger(idx))return;
+    let order=idx;
+    if(idx===sourceSlotIndex)order=targetSlotIndex;
+    else if(idx===targetSlotIndex)order=sourceSlotIndex;
+    el.style.order=String(order);
+  });
+  animateTeamSlotReflow(els,firstRects);
+}
+function clearTeamSlotPreviewOrder(playerIndex=null){
+  getTeamSlotElements(playerIndex).forEach(el=>{
+    el.style.order='';
+    el.style.transform='';
+    el.style.transition='';
+  });
+}
+function clearTeamSlotDragUI(){
+  document.querySelectorAll('.es.team-slot-dragging').forEach(el=>el.classList.remove('team-slot-dragging'));
+  document.querySelectorAll('.es.team-slot-drop-target').forEach(el=>el.classList.remove('team-slot-drop-target'));
+  clearTeamSlotPreviewOrder();
+}
+function onTeamSlotDragStart(e,playerIndex,slotIndex,slotEl){
+  if(myReadonly){e.preventDefault();return;}
+  _teamSlotDrag={playerIndex,slotIndex,previewPlayerIndex:null,previewSlotIndex:null};
+  slotEl.classList.add('team-slot-dragging');
+  try{
+    e.dataTransfer.effectAllowed='move';
+    e.dataTransfer.setData('text/plain',`team:${playerIndex}:${slotIndex}`);
+    e.dataTransfer.setDragImage(_streamEmptyDragImg,0,0);
+  }catch(_){}
+}
+function onTeamSlotDragOver(e,targetPlayerIndex,targetSlotIndex,slotEl){
+  const {playerIndex:sourcePlayerIndex,slotIndex:sourceSlotIndex}=_teamSlotDrag;
+  if(sourcePlayerIndex===null||sourceSlotIndex===null)return;
+  if(sourcePlayerIndex!==targetPlayerIndex)return;
+  if(sourceSlotIndex===targetSlotIndex){
+    if(_teamSlotDrag.previewPlayerIndex===targetPlayerIndex&&_teamSlotDrag.previewSlotIndex!==null){
+      e.preventDefault();
+      try{ if(e.dataTransfer) e.dataTransfer.dropEffect='move'; }catch(_){}
+    }
+    return;
+  }
+  e.preventDefault();
+  try{ if(e.dataTransfer) e.dataTransfer.dropEffect='move'; }catch(_){}
+  if(_teamSlotDrag.previewPlayerIndex===targetPlayerIndex&&_teamSlotDrag.previewSlotIndex===targetSlotIndex)return;
+  document.querySelectorAll('.es.team-slot-drop-target').forEach(el=>el.classList.remove('team-slot-drop-target'));
+  slotEl.classList.add('team-slot-drop-target');
+  clearTeamSlotPreviewOrder(targetPlayerIndex);
+  applyTeamSlotPreviewOrder(targetPlayerIndex,sourceSlotIndex,targetSlotIndex);
+  _teamSlotDrag.previewPlayerIndex=targetPlayerIndex;
+  _teamSlotDrag.previewSlotIndex=targetSlotIndex;
+}
+function onTeamSlotDrop(e,targetPlayerIndex,targetSlotIndex){
+  e.preventDefault();
+  const {playerIndex:sourcePlayerIndex,slotIndex:sourceSlotIndex}=_teamSlotDrag;
+  let resolvedTargetSlotIndex=targetSlotIndex;
+  if(
+    resolvedTargetSlotIndex===sourceSlotIndex &&
+    _teamSlotDrag.previewPlayerIndex===targetPlayerIndex &&
+    _teamSlotDrag.previewSlotIndex!==null
+  ){
+    resolvedTargetSlotIndex=_teamSlotDrag.previewSlotIndex;
+  }
+  clearTeamSlotDragUI();
+  if(sourcePlayerIndex===null||sourceSlotIndex===null)return;
+  if(sourcePlayerIndex!==targetPlayerIndex)return;
+  if(sourceSlotIndex===resolvedTargetSlotIndex)return;
+  socket.emit('swap-team-slots',{playerIndex:sourcePlayerIndex,slotA:sourceSlotIndex,slotB:resolvedTargetSlotIndex});
+  _teamSlotDragSuppressUntil=Date.now()+220;
+}
+function onTeamSlotDragEnd(){
+  clearTeamSlotDragUI();
+  _teamSlotDrag={playerIndex:null,slotIndex:null,previewPlayerIndex:null,previewSlotIndex:null};
+  _teamSlotDragSuppressUntil=Date.now()+220;
+}
+
 function renderTE(){
   const ed=document.getElementById('te');ed.innerHTML='<div class="sec-t">Team-Verwaltung</div>';
   // Always show all 3 player slots, not just connected ones
@@ -1433,10 +1954,12 @@ function renderTE(){
     if(!isConnected) blk.style.opacity='.45';
     blk.innerHTML=`<div class="pb-h"><span class="pi-badge pi-${pi}">${pi+1}</span><span>${getPN(pi)}</span>${pi===myPI?'<span style="font-size:.62rem;color:var(--txd);font-family:Space Mono,monospace;margin-left:3px">(du)</span>':!isConnected?'<span style="font-size:.62rem;color:var(--txd);font-family:Space Mono,monospace;margin-left:3px">(nicht dabei)</span>':''}</div>`;
     const grid=document.createElement('div');grid.className='pb-g';
+    grid.dataset.playerIndex=String(pi);
     for(let si=0;si<6;si++){
       const pk=team[pi]?.[si];
       const ls=locStr('team',si);const lnk=isLinked(pi,ls),brk=isBroken(pi,ls);
       const el=document.createElement('div');
+      const canSlotDrag=!myReadonly && isConnected;
       const linkObj = getLinkForSlot(pi, si);
       const linkColor = linkObj ? getSlotColor(si) : null;
       if (linkColor && pk?.pokeId && pk.alive) {
@@ -1455,7 +1978,8 @@ function renderTE(){
         + (lnk ? ' el' : '')
         + (brk ? ' ebr' : '')
         + (pk?.missed ? ' em' : '')
-        + (linkColor && pk?.pokeId && pk.alive ? ' elc' : '');
+        + (linkColor && pk?.pokeId && pk.alive ? ' elc' : '')
+        + (canSlotDrag ? ' team-slot-draggable' : '');
 
       if (linkColor && pk?.pokeId && pk.alive) {
         el.style.setProperty('--link-color', linkColor);
@@ -1468,10 +1992,46 @@ function renderTE(){
       else if(pk?.missed)el.innerHTML+=`<div class="ese" style="font-size:1.8rem;opacity:.4">✗</div>`;
       else el.innerHTML+=`<div class="ese">＋</div>`;
       el.innerHTML+=`<div class="esnm">${pk?.missed?'nicht gef.':(pk?pkName(pk):'leer')}</div>`;
-      el.onclick=()=>openPicker('team',pi,si);
+      el.dataset.teamSlotIndex=String(si);
+      el.setAttribute('draggable',canSlotDrag?'true':'false');
+      if(canSlotDrag){
+        el.addEventListener('dragstart',e=>onTeamSlotDragStart(e,pi,si,el));
+        el.addEventListener('dragover',e=>onTeamSlotDragOver(e,pi,si,el));
+        el.addEventListener('dragenter',e=>e.preventDefault());
+        el.addEventListener('dragleave',e=>{if(!el.contains(e.relatedTarget))el.classList.remove('team-slot-drop-target');});
+        el.addEventListener('drop',e=>onTeamSlotDrop(e,pi,si));
+        el.addEventListener('dragend',onTeamSlotDragEnd);
+        if(_isTouchDevice){
+          let tmo=null,active=false,sx=0,sy=0;
+          const clearTouch=()=>{if(tmo){clearTimeout(tmo);tmo=null;}};
+          el.addEventListener('touchstart',e=>{
+            if(e.touches.length!==1)return;
+            active=true;
+            sx=e.touches[0].clientX;sy=e.touches[0].clientY;
+            clearTouch();
+            tmo=setTimeout(()=>{
+              if(!active)return;
+              handleTeamSlotTouchSwap(pi,si);
+              _teamSlotTouchSuppressUntil=Date.now()+450;
+            },340);
+          },{passive:true});
+          el.addEventListener('touchmove',e=>{
+            if(!active||!tmo||e.touches.length!==1)return;
+            const dx=Math.abs(e.touches[0].clientX-sx),dy=Math.abs(e.touches[0].clientY-sy);
+            if(dx>8||dy>8)clearTouch();
+          },{passive:true});
+          el.addEventListener('touchend',()=>{active=false;clearTouch();},{passive:true});
+          el.addEventListener('touchcancel',()=>{active=false;clearTouch();},{passive:true});
+        }
+      }
+      el.onclick=()=>{
+        if(Date.now()<Math.max(_teamSlotDragSuppressUntil,_teamSlotTouchSuppressUntil))return;
+        openPicker('team',pi,si);
+      };
       if(pk?.pokeId&&!pk?.missed){
         const tb=document.createElement('button');
         tb.className='es-tot-btn '+(pk.alive?'alive':'dead');
+        tb.setAttribute('draggable','false');
         tb.textContent=pk.alive?'💀 Tot':'♻ Ok';
         tb.onclick=(e)=>{e.stopPropagation();socket.emit('set-alive',{playerIndex:pi,slotIndex:si,alive:!pk.alive});};
         el.appendChild(tb);
@@ -1483,6 +2043,7 @@ function renderTE(){
           const evo = nextEvos[0];
           const eb = document.createElement('button');
           eb.className = 'es-evo-btn';
+          eb.setAttribute('draggable','false');
           const deName = _deNames?.get(evo.id);
           eb.textContent = '→ '+(deName||evo.name);
           eb.title = 'Entwickeln zu '+(deName||evo.name);
@@ -2039,6 +2600,167 @@ function setPAt(s,pk){
   }
 }
 
+let _slDrag={linkId:null,category:null};
+let _slTouchSuppressUntil=0;
+let _slTouchSelected={linkId:null,category:null};
+function clearSoullinkTouchSelectionUI(){
+  document.querySelectorAll('.li.link-touch-selected').forEach(el=>el.classList.remove('link-touch-selected'));
+}
+function setSoullinkTouchSelection(linkId,category){
+  clearSoullinkTouchSelectionUI();
+  _slTouchSelected={linkId,category};
+  const el=document.querySelector(`.li[data-link-id="${linkId}"][data-link-category="${category}"]`);
+  if(el)el.classList.add('link-touch-selected');
+}
+function clearSoullinkTouchSelection(){
+  _slTouchSelected={linkId:null,category:null};
+  clearSoullinkTouchSelectionUI();
+}
+function getTeamLinkSlotIndex(lk){
+  const idxs=(lk?.slots||[])
+    .filter(s=>s.location==='team'&&Number.isInteger(s.slotIndex))
+    .map(s=>s.slotIndex);
+  if(!idxs.length)return 999;
+  return Math.min(...idxs);
+}
+function getFirstFreeTeamSlotForLink(lk){
+  if(!lk?.slots?.length)return-1;
+  for(let si=0;si<6;si++){
+    const freeForAll=lk.slots.every(s=>!team[s.playerIndex]?.[si]?.pokeId);
+    if(freeForAll)return si;
+  }
+  return -1;
+}
+function clearSoullinkDragUI(){
+  document.querySelectorAll('.li.dragging-link').forEach(el=>el.classList.remove('dragging-link'));
+  document.querySelectorAll('.li.link-drop-target').forEach(el=>el.classList.remove('link-drop-target'));
+  document.querySelectorAll('.ll-section-body.link-section-drop-target').forEach(el=>el.classList.remove('link-section-drop-target'));
+}
+function onSoullinkLinkDragStart(e,linkId,category,item){
+  if(myReadonly){e.preventDefault();return;}
+  _slDrag={linkId,category};
+  item.classList.add('dragging-link');
+  try{
+    e.dataTransfer.effectAllowed='move';
+    e.dataTransfer.setData('text/plain',String(linkId));
+  }catch(_){}
+}
+function onSoullinkLinkDragOver(e,targetLinkId,targetCategory,item){
+  if(!_slDrag.linkId||_slDrag.linkId===targetLinkId)return;
+  const sameCategory=_slDrag.category===targetCategory;
+  const boxedToTeam=_slDrag.category==='boxed'&&targetCategory==='team';
+  if(!sameCategory&&!boxedToTeam)return;
+  e.preventDefault();
+  try{ if(e.dataTransfer) e.dataTransfer.dropEffect='move'; }catch(_){}
+  clearSoullinkDragUI();
+  item.classList.add('link-drop-target');
+}
+function onSoullinkTeamSectionDragOver(e,teamLinkCount,sectionBody){
+  if(!_slDrag.linkId||_slDrag.category!=='boxed')return;
+  const sourceLink=links.find(l=>l.id===_slDrag.linkId);
+  if(!sourceLink)return;
+  if(teamLinkCount<6){
+    const freeSlot=getFirstFreeTeamSlotForLink(sourceLink);
+    if(freeSlot<0)return;
+  }
+  e.preventDefault();
+  try{ if(e.dataTransfer) e.dataTransfer.dropEffect='move'; }catch(_){}
+  clearSoullinkDragUI();
+  sectionBody.classList.add('link-section-drop-target');
+}
+function onSoullinkTeamSectionDrop(e,teamLinkCount){
+  e.preventDefault();
+  const sourceId=_slDrag.linkId;
+  const sourceCategory=_slDrag.category;
+  clearSoullinkDragUI();
+  if(!sourceId||sourceCategory!=='boxed'){
+    _slDrag={linkId:null,category:null};
+    return;
+  }
+  const sourceLink=links.find(l=>l.id===sourceId);
+  if(!sourceLink){
+    _slDrag={linkId:null,category:null};
+    return;
+  }
+  if(teamLinkCount>=6){
+    toast('Team ist voll: zieh auf einen Team-Link zum Tauschen.',1);
+    _slDrag={linkId:null,category:null};
+    return;
+  }
+  const freeSlot=getFirstFreeTeamSlotForLink(sourceLink);
+  if(freeSlot<0){
+    toast('Kein gemeinsamer freier Team-Slot verfügbar.',1);
+    _slDrag={linkId:null,category:null};
+    return;
+  }
+  socket.emit('move-link-to-team',{linkId:sourceId,slotIndex:freeSlot});
+  toast(`📥 Link ins Team auf Slot ${freeSlot+1} verschoben`);
+  _slDrag={linkId:null,category:null};
+}
+function onSoullinkLinkDrop(e,targetLinkId,targetCategory){
+  e.preventDefault();
+  const sourceId=_slDrag.linkId;
+  const sourceCategory=_slDrag.category;
+  clearSoullinkDragUI();
+  if(!sourceId||sourceId===targetLinkId)return;
+  if(targetCategory==='team'&&sourceCategory==='boxed'){
+    const sourceLink=links.find(l=>l.id===sourceId);
+    const targetLink=links.find(l=>l.id===targetLinkId);
+    const teamLinks=links.filter(lk=>linkCategory(lk)==='team');
+    if(!sourceLink||!targetLink){_slDrag={linkId:null,category:null};return;}
+    if(teamLinks.length<6){
+      const freeSlot=getFirstFreeTeamSlotForLink(sourceLink);
+      if(freeSlot<0){
+        toast('Kein gemeinsamer freier Team-Slot verfügbar.',1);
+      }else{
+        socket.emit('move-link-to-team',{linkId:sourceId,slotIndex:freeSlot});
+        toast(`📥 Link ins Team auf Slot ${freeSlot+1} verschoben`);
+      }
+    }else{
+      const targetSlot=getTeamLinkSlotIndex(targetLink);
+      if(targetSlot<0||targetSlot>5||!Number.isInteger(targetSlot)){
+        toast('Ziel-Slot konnte nicht ermittelt werden.',1);
+      }else{
+        socket.emit('move-link-to-team',{linkId:sourceId,slotIndex:targetSlot});
+        toast(`🔁 Mit Team-Slot ${targetSlot+1} getauscht`);
+      }
+    }
+    _slDrag={linkId:null,category:null};
+    return;
+  }
+  if(sourceCategory!==targetCategory)return;
+  if(targetCategory==='team'){
+    socket.emit('swap-links-team',{linkAId:sourceId,linkBId:targetLinkId});
+    toast('🔁 Team-Links getauscht');
+  } else if(targetCategory==='boxed'){
+    socket.emit('swap-links-box',{linkAId:sourceId,linkBId:targetLinkId});
+    toast('🔁 Box-Links getauscht');
+  }
+  _slDrag={linkId:null,category:null};
+}
+function onSoullinkLinkDragEnd(){
+  clearSoullinkDragUI();
+  _slDrag={linkId:null,category:null};
+}
+function onSoullinkLinkTouchAction(linkId,category,targetLinkId,targetCategory){
+  if(myReadonly)return;
+  if(Date.now()<_slTouchSuppressUntil)return;
+  const cur=_slTouchSelected;
+  if(cur.linkId===null||cur.category===null){
+    setSoullinkTouchSelection(linkId,category);
+    toast('Link ausgewählt – tippe Ziel-Link',0);
+    return;
+  }
+  if(cur.linkId===linkId&&cur.category===category){
+    clearSoullinkTouchSelection();
+    return;
+  }
+  _slDrag={linkId:cur.linkId,category:cur.category};
+  onSoullinkLinkDrop({preventDefault:()=>{}},targetLinkId,targetCategory);
+  clearSoullinkTouchSelection();
+  _slTouchSuppressUntil=Date.now()+450;
+}
+
 // ── Link-Karte bauen ─────────────────────────────────────────────────────────
 function buildLinkItem(lk){
   const isRoute=!!lk.routeId;
@@ -2143,21 +2865,102 @@ function renderLL(){
   const list=document.getElementById('ll-list');if(!list)return;
   list.innerHTML='';
 
-  const teamLinks  = links.filter(lk=>linkCategory(lk)==='team');
+  const teamLinks  = links
+    .filter(lk=>linkCategory(lk)==='team')
+    .sort((a,b)=>{
+      const da=getTeamLinkSlotIndex(a), db=getTeamLinkSlotIndex(b);
+      if(da!==db)return da-db;
+      return (a.id||0)-(b.id||0);
+    });
   const boxedLinks = links.filter(lk=>linkCategory(lk)==='boxed');
 
-  function section(title, icon, arr, emptyMsg){
+  function section(title, icon, arr, emptyMsg, secType){
     const wrap=document.createElement('div');wrap.style.marginBottom='4px';
     const t=document.createElement('div');t.className='ll-section-title';
     t.innerHTML=`${icon} ${title} <span class="ll-count">${arr.length}</span>`;
     wrap.appendChild(t);
-    if(!arr.length){const e=document.createElement('div');e.className='empty-state';e.style.paddingTop='10px';e.textContent=emptyMsg;wrap.appendChild(e);}
-    else arr.forEach(lk=>wrap.appendChild(buildLinkItem(lk)));
+    const body=document.createElement('div');
+    body.className='ll-section-body';
+    if(!arr.length){
+      const e=document.createElement('div');
+      e.className='empty-state';
+      e.style.paddingTop='10px';
+      e.textContent=emptyMsg;
+      body.appendChild(e);
+    }else arr.forEach(lk=>{
+      const item=buildLinkItem(lk);
+      item.dataset.linkId=String(lk.id);
+      item.dataset.linkCategory=secType;
+      const canDrag=!myReadonly && (secType==='team'||secType==='boxed');
+      if(canDrag){
+        item.setAttribute('draggable','true');
+        item.classList.add('li-draggable');
+        item.addEventListener('dragstart',e=>onSoullinkLinkDragStart(e,lk.id,secType,item));
+        item.addEventListener('dragover',e=>onSoullinkLinkDragOver(e,lk.id,secType,item));
+        item.addEventListener('dragenter',e=>e.preventDefault());
+        item.addEventListener('dragleave',e=>{ if(!item.contains(e.relatedTarget)) item.classList.remove('link-drop-target'); });
+        item.addEventListener('drop',e=>onSoullinkLinkDrop(e,lk.id,secType));
+        item.addEventListener('dragend',onSoullinkLinkDragEnd);
+        if(_isTouchDevice){
+          let tmo=null,active=false,sx=0,sy=0;
+          const clearTouch=()=>{if(tmo){clearTimeout(tmo);tmo=null;}};
+          item.addEventListener('touchstart',e=>{
+            if(e.touches.length!==1)return;
+            active=true;
+            sx=e.touches[0].clientX;sy=e.touches[0].clientY;
+            clearTouch();
+            tmo=setTimeout(()=>{
+              if(!active)return;
+              onSoullinkLinkTouchAction(lk.id,secType,lk.id,secType);
+              _slTouchSuppressUntil=Date.now()+450;
+            },360);
+          },{passive:true});
+          item.addEventListener('touchmove',e=>{
+            if(!active||!tmo||e.touches.length!==1)return;
+            const dx=Math.abs(e.touches[0].clientX-sx),dy=Math.abs(e.touches[0].clientY-sy);
+            if(dx>8||dy>8)clearTouch();
+          },{passive:true});
+          item.addEventListener('touchend',()=>{active=false;clearTouch();},{passive:true});
+          item.addEventListener('touchcancel',()=>{active=false;clearTouch();},{passive:true});
+          item.addEventListener('click',e=>{
+            if(Date.now()<_slTouchSuppressUntil){e.preventDefault();e.stopPropagation();return;}
+            if(_slTouchSelected.linkId!==null){
+              e.preventDefault();
+              e.stopPropagation();
+              onSoullinkLinkTouchAction(lk.id,secType,lk.id,secType);
+            }
+          });
+        }
+      }else{
+        item.setAttribute('draggable','false');
+      }
+      body.appendChild(item);
+    });
+    if(!myReadonly&&secType==='team'){
+      body.addEventListener('dragover',e=>onSoullinkTeamSectionDragOver(e,teamLinks.length,body));
+      body.addEventListener('dragenter',e=>{if(_slDrag.category==='boxed')e.preventDefault();});
+      body.addEventListener('dragleave',e=>{ if(!body.contains(e.relatedTarget)) body.classList.remove('link-section-drop-target'); });
+      body.addEventListener('drop',e=>onSoullinkTeamSectionDrop(e,teamLinks.length));
+      body.addEventListener('dragend',onSoullinkLinkDragEnd);
+      if(_isTouchDevice){
+        body.addEventListener('click',e=>{
+          if(Date.now()<_slTouchSuppressUntil)return;
+          if(_slTouchSelected.linkId===null||_slTouchSelected.category!=='boxed')return;
+          const card=e.target?.closest?.('.li');
+          if(card)return; // target-card clicks handled there
+          _slDrag={linkId:_slTouchSelected.linkId,category:_slTouchSelected.category};
+          onSoullinkTeamSectionDrop({preventDefault:()=>{}},teamLinks.length);
+          clearSoullinkTouchSelection();
+          _slTouchSuppressUntil=Date.now()+450;
+        });
+      }
+    }
+    wrap.appendChild(body);
     return wrap;
   }
 
-  list.appendChild(section('Im Team','👥',teamLinks,'Keine Links im Team.'));
-  list.appendChild(section('In der Box','📦',boxedLinks,'Keine Links in der Box.'));
+  list.appendChild(section('Im Team','👥',teamLinks,'Keine Links im Team.','team'));
+  list.appendChild(section('In der Box','📦',boxedLinks,'Keine Links in der Box.','boxed'));
 }
 
 function getPAt(s){
@@ -2184,7 +2987,136 @@ function createLink(){
 // BOX PAGE
 // ═══════════════════════════════════════════════
 let bv={pi:0,bn:0};
+let _boxDrag={playerIndex:null,boxNum:null,slotIndex:null,previewSlotIndex:null};
+let _boxDragSuppressUntil=0;
+let _boxTouchSuppressUntil=0;
+let _boxTouchSelected={playerIndex:null,boxNum:null,slotIndex:null};
 function initBV(){if(bv.pi<0||bv.pi>2)bv={pi:myPI>=0?myPI:0,bn:0};}
+function clearBoxTouchSelectionUI(){
+  document.querySelectorAll('.bs.box-slot-touch-selected').forEach(el=>el.classList.remove('box-slot-touch-selected'));
+}
+function selectBoxTouchTarget(playerIndex,boxNum,slotIndex){
+  clearBoxTouchSelectionUI();
+  const el=document.querySelector(`#bgrid .bs[data-player-index="${playerIndex}"][data-box-num="${boxNum}"][data-box-slot-index="${slotIndex}"]`);
+  if(el)el.classList.add('box-slot-touch-selected');
+}
+function handleBoxTouchSwap(playerIndex,boxNum,slotIndex){
+  if(myReadonly)return;
+  const cur=_boxTouchSelected;
+  if(cur.playerIndex===null||cur.boxNum===null||cur.slotIndex===null){
+    _boxTouchSelected={playerIndex,boxNum,slotIndex};
+    selectBoxTouchTarget(playerIndex,boxNum,slotIndex);
+    toast('Box-Slot ausgewählt – tippe Ziel-Slot',0);
+    return;
+  }
+  if(cur.playerIndex===playerIndex&&cur.boxNum===boxNum&&cur.slotIndex===slotIndex){
+    _boxTouchSelected={playerIndex:null,boxNum:null,slotIndex:null};
+    clearBoxTouchSelectionUI();
+    return;
+  }
+  if(cur.playerIndex!==playerIndex||cur.boxNum!==boxNum){
+    _boxTouchSelected={playerIndex,boxNum,slotIndex};
+    selectBoxTouchTarget(playerIndex,boxNum,slotIndex);
+    return;
+  }
+  socket.emit('swap-box-slots',{playerIndex,boxNum,slotA:cur.slotIndex,slotB:slotIndex});
+  _boxTouchSelected={playerIndex:null,boxNum:null,slotIndex:null};
+  clearBoxTouchSelectionUI();
+  _boxTouchSuppressUntil=Date.now()+450;
+}
+function getBoxSlotElements(playerIndex,boxNum){
+  return [...document.querySelectorAll(`#bgrid .bs[data-player-index="${playerIndex}"][data-box-num="${boxNum}"][data-box-slot-index]`)];
+}
+function animateBoxSlotReflow(els,firstRects){
+  els.forEach(el=>{
+    const prev=firstRects.get(el);if(!prev)return;
+    const now=el.getBoundingClientRect();
+    const dx=prev.left-now.left,dy=prev.top-now.top;
+    if(Math.abs(dx)<1&&Math.abs(dy)<1)return;
+    el.style.transition='none';
+    el.style.transform=`translate(${dx}px,${dy}px)`;
+    requestAnimationFrame(()=>{
+      el.style.transition='transform .2s cubic-bezier(.22,.9,.24,1)';
+      el.style.transform='';
+    });
+  });
+}
+function applyBoxSlotPreviewOrder(playerIndex,boxNum,sourceSlotIndex,targetSlotIndex){
+  const els=getBoxSlotElements(playerIndex,boxNum);
+  if(!els.length)return;
+  const firstRects=new Map(els.map(el=>[el,el.getBoundingClientRect()]));
+  els.forEach(el=>{
+    const idx=parseInt(el.dataset.boxSlotIndex,10);
+    if(!Number.isInteger(idx))return;
+    let order=idx;
+    if(idx===sourceSlotIndex)order=targetSlotIndex;
+    else if(idx===targetSlotIndex)order=sourceSlotIndex;
+    el.style.order=String(order);
+  });
+  animateBoxSlotReflow(els,firstRects);
+}
+function clearBoxSlotPreviewOrder(playerIndex=null,boxNum=null){
+  const sel=(playerIndex===null||boxNum===null)
+    ? '#bgrid .bs[data-box-slot-index]'
+    : `#bgrid .bs[data-player-index="${playerIndex}"][data-box-num="${boxNum}"][data-box-slot-index]`;
+  document.querySelectorAll(sel).forEach(el=>{
+    el.style.order='';
+    el.style.transform='';
+    el.style.transition='';
+  });
+}
+function clearBoxDragUI(){
+  document.querySelectorAll('.bs.box-slot-dragging').forEach(el=>el.classList.remove('box-slot-dragging'));
+  document.querySelectorAll('.bs.box-slot-drop-target').forEach(el=>el.classList.remove('box-slot-drop-target'));
+  clearBoxSlotPreviewOrder();
+}
+function onBoxSlotDragStart(e,playerIndex,boxNum,slotIndex,slotEl){
+  if(myReadonly){e.preventDefault();return;}
+  _boxDrag={playerIndex,boxNum,slotIndex,previewSlotIndex:null};
+  slotEl.classList.add('box-slot-dragging');
+  try{
+    e.dataTransfer.effectAllowed='move';
+    e.dataTransfer.setData('text/plain',`box:${playerIndex}:${boxNum}:${slotIndex}`);
+    e.dataTransfer.setDragImage(_streamEmptyDragImg,0,0);
+  }catch(_){}
+}
+function onBoxSlotDragOver(e,targetPlayerIndex,targetBoxNum,targetSlotIndex,slotEl){
+  const {playerIndex:sourcePlayerIndex,boxNum:sourceBoxNum,slotIndex:sourceSlotIndex,previewSlotIndex}=_boxDrag;
+  if(sourcePlayerIndex===null||sourceBoxNum===null||sourceSlotIndex===null)return;
+  if(sourcePlayerIndex!==targetPlayerIndex||sourceBoxNum!==targetBoxNum)return;
+  if(sourceSlotIndex===targetSlotIndex){
+    if(previewSlotIndex!==null){
+      e.preventDefault();
+      try{ if(e.dataTransfer) e.dataTransfer.dropEffect='move'; }catch(_){}
+    }
+    return;
+  }
+  e.preventDefault();
+  try{ if(e.dataTransfer) e.dataTransfer.dropEffect='move'; }catch(_){}
+  if(previewSlotIndex===targetSlotIndex)return;
+  document.querySelectorAll('.bs.box-slot-drop-target').forEach(el=>el.classList.remove('box-slot-drop-target'));
+  slotEl.classList.add('box-slot-drop-target');
+  clearBoxSlotPreviewOrder(targetPlayerIndex,targetBoxNum);
+  applyBoxSlotPreviewOrder(targetPlayerIndex,targetBoxNum,sourceSlotIndex,targetSlotIndex);
+  _boxDrag.previewSlotIndex=targetSlotIndex;
+}
+function onBoxSlotDrop(e,targetPlayerIndex,targetBoxNum,targetSlotIndex){
+  e.preventDefault();
+  const {playerIndex:sourcePlayerIndex,boxNum:sourceBoxNum,slotIndex:sourceSlotIndex,previewSlotIndex}=_boxDrag;
+  let resolvedTargetSlotIndex=targetSlotIndex;
+  if(resolvedTargetSlotIndex===sourceSlotIndex&&previewSlotIndex!==null)resolvedTargetSlotIndex=previewSlotIndex;
+  clearBoxDragUI();
+  if(sourcePlayerIndex===null||sourceBoxNum===null||sourceSlotIndex===null)return;
+  if(sourcePlayerIndex!==targetPlayerIndex||sourceBoxNum!==targetBoxNum)return;
+  if(sourceSlotIndex===resolvedTargetSlotIndex)return;
+  socket.emit('swap-box-slots',{playerIndex:sourcePlayerIndex,boxNum:sourceBoxNum,slotA:sourceSlotIndex,slotB:resolvedTargetSlotIndex});
+  _boxDragSuppressUntil=Date.now()+220;
+}
+function onBoxSlotDragEnd(){
+  clearBoxDragUI();
+  _boxDrag={playerIndex:null,boxNum:null,slotIndex:null,previewSlotIndex:null};
+  _boxDragSuppressUntil=Date.now()+220;
+}
 function renderGraveyard(){
   const sec=document.getElementById('graveyard-section');if(!sec)return;
   const deadLinks=links.filter(lk=>lk.broken);
@@ -2285,10 +3217,45 @@ function renderBoxMain(){
     const pk=box[pi][bn][s];
     const ls=`box:${bn}:${s}`;const lnk=isLinked(pi,ls),brk=isBroken(pi,ls);
     const d=document.createElement('div');
+    const canBoxSlotDrag=!myReadonly;
     const standaloneShiny=pk?.shiny&&pk?.pokeId&&!lnk&&!brk&&!pk?.missed;
     const isSwappedIn=!!pk?.shinySwapOriginId;
 
-    d.className='bs'+(pk?.pokeId||pk?.missed?' bp':'')+(pk?.shiny&&!standaloneShiny?' bsh':'')+(pk?.pokeId&&!pk.alive?' bd':'')+(lnk?' bl':'')+(brk?' bbr':'')+(pk?.missedInitiator?' bm-initiator':pk?.missed?' bm':'')+(standaloneShiny?' bsh-standalone':'')+(isSwappedIn?' bsh-swapped':'');
+    d.className='bs'+(pk?.pokeId||pk?.missed?' bp':'')+(pk?.shiny&&!standaloneShiny?' bsh':'')+(pk?.pokeId&&!pk.alive?' bd':'')+(lnk?' bl':'')+(brk?' bbr':'')+(pk?.missedInitiator?' bm-initiator':pk?.missed?' bm':'')+(standaloneShiny?' bsh-standalone':'')+(isSwappedIn?' bsh-swapped':'')+(canBoxSlotDrag?' box-slot-draggable':'');
+    d.dataset.playerIndex=String(pi);
+    d.dataset.boxNum=String(bn);
+    d.dataset.boxSlotIndex=String(s);
+    d.setAttribute('draggable',canBoxSlotDrag?'true':'false');
+    if(canBoxSlotDrag){
+      d.addEventListener('dragstart',e=>onBoxSlotDragStart(e,pi,bn,s,d));
+      d.addEventListener('dragover',e=>onBoxSlotDragOver(e,pi,bn,s,d));
+      d.addEventListener('dragenter',e=>e.preventDefault());
+      d.addEventListener('dragleave',e=>{if(!d.contains(e.relatedTarget))d.classList.remove('box-slot-drop-target');});
+      d.addEventListener('drop',e=>onBoxSlotDrop(e,pi,bn,s));
+      d.addEventListener('dragend',onBoxSlotDragEnd);
+      if(_isTouchDevice){
+        let tmo=null,active=false,sx=0,sy=0;
+        const clearTouch=()=>{if(tmo){clearTimeout(tmo);tmo=null;}};
+        d.addEventListener('touchstart',e=>{
+          if(e.touches.length!==1)return;
+          active=true;
+          sx=e.touches[0].clientX;sy=e.touches[0].clientY;
+          clearTouch();
+          tmo=setTimeout(()=>{
+            if(!active)return;
+            handleBoxTouchSwap(pi,bn,s);
+            _boxTouchSuppressUntil=Date.now()+450;
+          },340);
+        },{passive:true});
+        d.addEventListener('touchmove',e=>{
+          if(!active||!tmo||e.touches.length!==1)return;
+          const dx=Math.abs(e.touches[0].clientX-sx),dy=Math.abs(e.touches[0].clientY-sy);
+          if(dx>8||dy>8)clearTouch();
+        },{passive:true});
+        d.addEventListener('touchend',()=>{active=false;clearTouch();},{passive:true});
+        d.addEventListener('touchcancel',()=>{active=false;clearTouch();},{passive:true});
+      }
+    }
     d.innerHTML=`<div class="bsn">${s+1}</div>`;
     if(lnk||brk)d.innerHTML+=`<div class="bsld${brk?' broken':lnk&&pk?.missed?' missed':''}"></div>`;
     if(pk?.shiny)d.innerHTML+=`<div class="bssh">✨</div>`;
@@ -2302,6 +3269,7 @@ function renderBoxMain(){
 
     // --- Linksklick: öffnet weiterhin Picker/Modal ---
     d.addEventListener('click', ()=>{
+      if(Date.now()<Math.max(_boxDragSuppressUntil,_boxTouchSuppressUntil))return;
       if(pk?.pokeId || pk?.missed){
         //openBoxMenuModal(pi,bn,s); // hier sollte dein bestehendes Modal öffnen
       } else {
@@ -2313,6 +3281,7 @@ function renderBoxMain(){
     d.addEventListener('contextmenu', (ev) => {
       ev.preventDefault();
       ev.stopPropagation();
+      if(Date.now()<Math.max(_boxDragSuppressUntil,_boxTouchSuppressUntil))return;
       if (!pk) return;
 
       // Entferne altes Menü
@@ -3677,7 +4646,7 @@ async function _openOnePopout(t){
 function toggleMinimize(){
   _minimized=!_minimized;
   const sg=document.getElementById('sg');
-  const peersRow=document.getElementById('peers-row');
+  syncPlayerStreamColumnParents();
   sg.classList.toggle('minimized',_minimized);
   document.getElementById('minbtn').textContent=_minimized?'⊞ maximieren':'⊟ minimieren';
   updateSgCols();
