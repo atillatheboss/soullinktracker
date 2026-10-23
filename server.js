@@ -1,3 +1,5 @@
+require('./check-node-version').assertPatchedNodeVersion();
+
 // ─── LOGGING: Alle Konsolenausgaben → connection.log ─────────────────────────
 const _fs_log    = require('fs');
 const _path_log  = require('path');

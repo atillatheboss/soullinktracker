@@ -69,7 +69,7 @@ Web app for SoulLink runs with integrated screen sharing, team/box management, r
 ## Local Setup
 
 ### Requirements
-- Node.js 18+ (20+ recommended)
+- Node.js 24.22.1 (LTS; see `.node-version`). The patched 22.23.4 and 26.12.1 release lines are also supported.
 - npm
 - OpenSSL (only needed if `cert.pem` and `key.pem` are missing and should be auto-generated)
 
@@ -104,6 +104,8 @@ openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem -days 365 -node
 ```bash
 npm start
 ```
+
+The server rejects Node.js releases without the fix for CVE-2026-111497. On Render, `.node-version` selects Node.js 24.22.1 unless the service has a `NODE_VERSION` environment variable; remove or update that override before redeploying.
 
 Default URLs:
 - HTTP: `http://localhost:3000`

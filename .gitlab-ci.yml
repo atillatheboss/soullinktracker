@@ -2,7 +2,7 @@ stages:
   - check
   - test
 
-image: mcr.microsoft.com/playwright:v1.60.0-jammy
+image: node:24.22.1-bookworm
 
 cache:
   paths:
@@ -15,8 +15,10 @@ syntax-check:
   stage: check
   script:
     - node --check server.js
+    - node --test node-version.test.js
 
 playwright-tests:
   stage: test
   script:
+    - npx playwright install --with-deps
     - npx playwright test

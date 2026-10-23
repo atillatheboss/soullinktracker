@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
 
     container:
-      image: node:20
+      image: node:24.22.1-bookworm
 
     steps:
       - name: Checkout repository
@@ -31,3 +31,6 @@ jobs:
 
       - name: Check server.js syntax
         run: node --check server.js
+
+      - name: Check allowed Node.js versions
+        run: node --test node-version.test.js
